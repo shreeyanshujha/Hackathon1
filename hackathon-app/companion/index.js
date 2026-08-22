@@ -8,8 +8,9 @@ import { peerSocket } from "messaging";
 // ======================= CONFIGURE ME =======================
 // Public HTTPS URL of the backend (cloudflared / ngrok tunnel), no trailing /.
 const BASE_URL = "https://containers-specially-glen-university.trycloudflare.com";
-// Which demo profile this physical watch streams as (see backend/profiles.json).
-const USER_ID = "usr_demo_a";
+// Which profile this physical watch streams as (see backend/profiles.json).
+// usr_live is the live card; the usr_demo_* cards stream mock data on their own.
+const USER_ID = "usr_live";
 // ============================================================
 
 const RETRY_DELAY_MS = 3000;

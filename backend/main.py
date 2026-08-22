@@ -1,25 +1,41 @@
 """FastAPI app: telemetry ingestion, rule engine, demo surface, Twilio webhooks.
 
-Run:  uvicorn main:app --host 0.0.0.0 --port 8000
+Run:  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+Sources feeding the one ingest pipeline:
+  - mock streamer (below): the three "source": "mock" profiles stream
+    continuously so the dashboard is always alive
+  - Fitbit Web API poller (fitbit.py): the "source": "fitbit" profile is the
+    wearer's real watch
+  - the on-watch developer-bridge app (hackathon-app/) posting to /ingest
+  - the /simulate scenario buttons
 """
 
 import asyncio
 import contextlib
+import math
+import random
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
+                               Response)
 from pydantic import BaseModel
 
 import engine as engine_mod
+import fitbit as fitbit_mod
 import telephony as tel
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 WATCHDOG_INTERVAL_SEC = 60  # per spec: watchdog sweep cadence
 SIM_CADENCE_SEC = 5         # simulated readings arrive at device batch cadence
+MOCK_CADENCE_SEC = 5        # continuous mock stream cadence
+SIM_PAUSE_SEC = 90          # mock stream stays quiet this long after a simulate
+                            # so the injected alert state stays visible
 
 # ------------------------------------------------------------------ wiring
 engine = engine_mod.RuleEngine()
@@ -33,6 +49,96 @@ def on_trigger(user_id, scenario, context):
 
 engine.on_trigger = on_trigger
 
+LIVE_USER_ID = next((uid for uid, p in engine.profiles.items()
+                     if p.get("source") == "fitbit"), None)
+
+
+def _set_resting_hr(bpm):
+    profile = engine.profiles[LIVE_USER_ID]
+    if profile["resting_hr_bpm"] != bpm:
+        profile["resting_hr_bpm"] = bpm
+        engine.log_event(LIVE_USER_ID, "fitbit_calibrated",
+                         "Resting HR calibrated from Fitbit: %d bpm" % bpm)
+
+
+fitbit = fitbit_mod.FitbitBridge(
+    user_id=LIVE_USER_ID,
+    ingest_fn=engine.ingest,
+    log_event=engine.log_event,
+    set_resting_hr=_set_resting_hr,
+)
+
+
+# ------------------------------------------------------------- mock streaming
+# Readings are deliberately benign at any wall-clock time: asleep inside the
+# profile's sleep window (still, no steps), gently active outside it (enough
+# steps that the immobility rule can never streak). Alerts stay owned by the
+# /simulate buttons, which pause a user's stream while their scenario plays.
+mock_pause_until = {}
+_mock_started = time.monotonic()
+_mock_phase = {}
+_mock_burst_until = {}
+_rng = random.Random()
+
+
+def pause_mock_stream(user_id, seconds):
+    until = datetime.now() + timedelta(seconds=seconds)
+    current = mock_pause_until.get(user_id)
+    if current is None or until > current:
+        mock_pause_until[user_id] = until
+
+
+def make_mock_reading(user_id, profile, now=None):
+    now = now or datetime.now()
+    rest = profile["resting_hr_bpm"]
+    phase = _mock_phase.setdefault(user_id, _rng.uniform(0, math.tau))
+    wobble = 6 * math.sin(time.monotonic() / 90 + phase)
+    asleep = engine_mod.in_time_window(
+        now, profile["sleep_window"]["start"], profile["sleep_window"]["end"])
+
+    if asleep:
+        hr = rest - 4 + 0.5 * wobble + _rng.gauss(0, 1.5)
+        steps, motion = _rng.randint(0, 2), "stationary"
+    else:
+        bursting = _mock_burst_until.get(user_id, 0) > time.monotonic()
+        if not bursting and _rng.random() < 0.03:
+            _mock_burst_until[user_id] = time.monotonic() + _rng.uniform(45, 110)
+            bursting = True
+        if bursting:  # pottering: kettle runs, hallway laps, the garden
+            hr = rest + 20 + _rng.gauss(0, 3)
+            steps, motion = _rng.randint(60, 140), "moderate"
+        else:
+            hr = rest + 8 + wobble + _rng.gauss(0, 2)
+            steps, motion = _rng.randint(8, 40), "light"
+
+    # Clamp under every alert threshold (acute_hr_bpm, resting + elevated margin).
+    hr = int(max(45, min(hr, rest + 27)))
+    battery = max(35, 96 - int((time.monotonic() - _mock_started) / 720))
+    return {
+        "user_id": user_id,
+        "timestamp": now.isoformat(timespec="seconds"),
+        "heart_rate_bpm": hr,
+        "step_count_last_5min": steps,
+        "motion_intensity": motion,
+        "battery_pct": battery,
+    }
+
+
+async def mock_streamer():
+    while True:
+        await asyncio.sleep(MOCK_CADENCE_SEC)
+        now = datetime.now()
+        for user_id, profile in engine.profiles.items():
+            if profile.get("source", "mock") != "mock":
+                continue
+            paused = mock_pause_until.get(user_id)
+            if paused and now < paused:
+                continue
+            try:
+                engine.ingest(make_mock_reading(user_id, profile, now))
+            except Exception as exc:  # never let the streamer die silently
+                engine.log_event("system", "mock_stream_error", str(exc))
+
 
 @contextlib.asynccontextmanager
 async def lifespan(_app):
@@ -44,11 +150,14 @@ async def lifespan(_app):
             except Exception as exc:  # never let the watchdog die silently
                 engine.log_event("system", "watchdog_error", str(exc), "info")
 
-    task = asyncio.create_task(watchdog())
+    tasks = [asyncio.create_task(watchdog()),
+             asyncio.create_task(mock_streamer()),
+             asyncio.create_task(fitbit.run())]
     yield
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    for task in tasks:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="Telecare Anomaly Detection", lifespan=lifespan)
@@ -76,12 +185,43 @@ def ingest(reading: Telemetry):
 
 @app.get("/state")
 def state():
-    return engine.snapshot()
+    snap = engine.snapshot()
+    snap["fitbit"] = fitbit.status()
+    return snap
 
 
 @app.get("/")
 def dashboard():
     return FileResponse(STATIC / "dashboard.html")
+
+
+# ------------------------------------------------------------------- fitbit
+@app.get("/fitbit/login")
+def fitbit_login():
+    if not fitbit.configured():
+        return HTMLResponse(fitbit.setup_help_html())
+    return RedirectResponse(fitbit.login_url())
+
+
+@app.get("/fitbit/callback")
+def fitbit_callback(code: str = Query(None), state: str = Query(None),
+                    error: str = Query(None)):
+    if error or not code:
+        return HTMLResponse(
+            "<h3>Fitbit sign-in did not complete (%s).</h3>"
+            "<p><a href='/fitbit/login'>Try again</a></p>" % (error or "no code"))
+    try:
+        fitbit.exchange_code(code, state)
+    except Exception as exc:
+        return HTMLResponse(
+            "<h3>Fitbit token exchange failed</h3><pre>%s</pre>"
+            "<p><a href='/fitbit/login'>Try again</a></p>" % exc)
+    return RedirectResponse("/")
+
+
+@app.get("/fitbit/status")
+def fitbit_status():
+    return fitbit.status()
 
 
 # ------------------------------------------------------------------ simulator
@@ -122,7 +262,7 @@ def _seq_lost_connection(profile):
 SCENARIOS = {
     "acute": ("usr_demo_a", _seq_acute),
     "immobility": ("usr_demo_b", _seq_immobility),
-    "wandering": ("usr_demo_d", _seq_wandering),
+    "wandering": ("usr_demo_c", _seq_wandering),
     "normal": ("usr_demo_a", _seq_normal),
     "lost_connection": ("usr_demo_c", _seq_lost_connection),
 }
@@ -137,8 +277,26 @@ def simulate(scenario: str = Query(...), user_id: str = Query(None)):
     if uid not in engine.profiles:
         raise HTTPException(404, "unknown user_id %r" % uid)
 
+    # Keep the continuous mock stream out of the way while the scenario plays;
+    # lost_connection needs silence long enough for the watchdog to notice.
+    if engine.profiles[uid].get("source", "mock") == "mock":
+        pause = SIM_PAUSE_SEC
+        if scenario == "lost_connection":
+            pause = engine.thresholds["missing_data_min"] * 60 + 90
+        pause_mock_stream(uid, pause)
+
     seq = seq_fn(engine.profiles[uid])
-    start = datetime.now() - timedelta(seconds=SIM_CADENCE_SEC * (len(seq) - 1))
+    if scenario == "wandering":
+        # Wandering means movement inside the sleep window, so stamp the
+        # sequence at the window's most recent occurrence (e.g. last night)
+        # for honest overnight behaviour at any wall-clock demo time.
+        h, m = (int(x) for x in
+                engine.profiles[uid]["sleep_window"]["start"].split(":"))
+        start = datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
+        if start > datetime.now():
+            start -= timedelta(days=1)
+    else:
+        start = datetime.now() - timedelta(seconds=SIM_CADENCE_SEC * (len(seq) - 1))
     results = []
     for i, (hr, steps, motion) in enumerate(seq):
         ts = start + timedelta(seconds=SIM_CADENCE_SEC * i)
@@ -150,7 +308,7 @@ def simulate(scenario: str = Query(...), user_id: str = Query(None)):
             motion_intensity=motion,
             battery_pct=84,
         )))
-    note = ("now stop all telemetry and wait ~%d min for the watchdog"
+    note = ("mock stream paused — the watchdog flags lost connection after ~%d min"
             % engine.thresholds["missing_data_min"]
             if scenario == "lost_connection" else None)
     return {"ok": True, "scenario": scenario, "user_id": uid,
@@ -176,7 +334,10 @@ def voice_answer(user_id: str = Query(...), scenario: str = Query(...)):
     if not profile:
         return _twiml(tel.invalid_twiml())
     ctx = telephony.call_context.get(user_id, {}).get("context", {})
-    routine = engine.current_routine(user_id)
+    # Prefer the routine_note frozen into the TriggerEvent at trigger time;
+    # fall back to a live lookup for calls replayed without one.
+    routine = (ctx.get("schedule_context") or {}).get("routine_note") \
+        or engine.current_routine(user_id)
     base_url = tel.env("PUBLIC_BASE_URL")
     engine.log_event(user_id, "call_answered",
                      "Kin answered — playing %s script" % scenario)

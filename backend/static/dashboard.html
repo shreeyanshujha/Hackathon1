@@ -40,6 +40,13 @@
   .badge.NORMAL     { background: #123c2e; color: #34d399; }
   .badge.EVALUATING { background: #443309; color: #fbbf24; }
   .badge.ALERT      { background: #4a1414; color: #f87171; }
+  .srctag {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    padding: 2px 9px; border-radius: 999px;
+    background: #1d2a3f; color: var(--dim);
+  }
+  .srctag.live { background: #0f2c3f; color: var(--accent); }
+  a.connect { color: var(--accent); font-weight: 600; text-decoration: none; }
   .vitals { display: flex; align-items: center; gap: 22px; margin: 16px 0 10px; }
   .hr-big { font-size: 54px; font-weight: 700; line-height: 1; min-width: 120px; }
   .hr-big small { font-size: 16px; color: var(--dim); font-weight: 400; }
@@ -80,7 +87,7 @@
 <div id="controls">
   <button onclick="simulate('acute')">&#x26A0; Acute (Jeff)</button>
   <button onclick="simulate('immobility')">&#x1F6CB; Immobility (Margaret)</button>
-  <button onclick="simulate('wandering')">&#x1F319; Wandering (Elsie)</button>
+  <button onclick="simulate('wandering')">&#x1F319; Wandering (Harold)</button>
   <button onclick="simulate('normal')">&#x1F3C3; Normal activity (Jeff)</button>
   <button onclick="simulate('lost_connection')">&#x1F4F6; Lost connection (Harold)</button>
   <button class="reset" onclick="resetAll()">Reset all cooldowns</button>
@@ -105,17 +112,35 @@ function sparkline(points) {
             <polyline points="${pts}"/></svg>`;
 }
 
-function card(uid, u) {
+function fitbitRow(fb) {
+  let v;
+  if (!fb || !fb.configured) {
+    v = `<span class="stale">not configured</span> &mdash; set FITBIT_CLIENT_ID in backend/.env`;
+  } else if (!fb.authorized) {
+    v = `<a class="connect" href="${fb.login_path}">Connect watch &rarr;</a>`;
+  } else if (fb.last_error) {
+    v = `<span class="stale">poll error</span> &mdash; ${fb.last_error}`;
+  } else if (fb.last_sync_sec_ago == null) {
+    v = "connected &middot; waiting for first poll";
+  } else {
+    v = `connected &middot; polled ${fb.last_sync_sec_ago}s ago`;
+  }
+  return `<div class="row"><span class="k">Fitbit API</span><span>${v}</span></div>`;
+}
+
+function card(uid, u, fb) {
   const latest = u.latest || {};
   const seen = u.last_seen_sec_ago;
   const seenTxt = seen == null ? "never" : (seen < 90 ? seen + "s ago" : Math.round(seen/60) + "m ago");
-  const stale = u.missing_flagged || (seen != null && seen > 60);
+  const live = u.source === "fitbit";
+  const stale = u.missing_flagged || (!live && seen != null && seen > 60);
   const cd = u.cooldown_sec_remaining;
   const cdTxt = cd > 0 ? Math.ceil(cd/60) + " min left" : "clear";
   return `<div class="card ${u.status}">
     <div class="who">
       <span class="name">${u.name}</span>
       <span class="meta">${u.age} &middot; rest ${u.resting_hr_bpm} bpm &middot; ${uid}</span>
+      <span class="srctag${live ? " live" : ""}">${live ? "LIVE &middot; FITBIT" : "SIM"}</span>
       <span class="badge ${u.status}">${u.status}</span>
     </div>
     <div class="vitals">
@@ -131,17 +156,21 @@ function card(uid, u) {
         <span class="${stale?"stale":""}">${seenTxt}${u.missing_flagged?" &mdash; LOST CONNECTION":""}</span></div>
       <div class="row"><span class="k">Sleep window</span>
         <span>${u.sleep_window.start}&ndash;${u.sleep_window.end} &middot; kin: ${u.kin_name}</span></div>
+      ${live ? fitbitRow(fb) : ""}
     </div>
   </div>`;
 }
+
+let lastState = null;
 
 async function tick() {
   try {
     const r = await fetch("/state");
     const s = await r.json();
+    lastState = s;
     document.getElementById("offline").style.display = "none";
     document.getElementById("clock").textContent = s.server_time.replace("T", "  ");
-    cards.innerHTML = Object.entries(s.users).map(([uid, u]) => card(uid, u)).join("");
+    cards.innerHTML = Object.entries(s.users).map(([uid, u]) => card(uid, u, s.fitbit)).join("");
     logEl.innerHTML = s.events.map(e =>
       `<div class="${e.severity}"><span class="t">${e.ts.slice(11)}</span>` +
       `[${e.user_id}] ${e.message}</div>`).join("") || "<span class='t'>no events yet</span>";
@@ -154,7 +183,8 @@ async function simulate(scenario) {
   tick();
 }
 async function resetAll() {
-  for (const uid of ["usr_demo_a", "usr_demo_b", "usr_demo_c", "usr_demo_d"])
+  const uids = lastState ? Object.keys(lastState.users) : [];
+  for (const uid of uids)
     await fetch("/demo/reset-cooldown/" + uid, { method: "POST" });
   tick();
 }

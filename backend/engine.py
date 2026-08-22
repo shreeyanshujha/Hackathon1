@@ -30,6 +30,14 @@ BASE_DIR = Path(__file__).resolve().parent
 # Scenarios that place a call, in priority order (first match wins per reading).
 CALL_SCENARIOS = ("acute", "wandering", "immobility")
 
+# Urgency carried on every TriggerEvent, keyed by scenario.
+URGENCY = {
+    "acute": "high",
+    "wandering": "high",
+    "immobility": "low",
+    "lost_connection": "low",
+}
+
 MOVING_INTENSITIES = ("moderate", "high", "moving")
 
 
@@ -66,6 +74,26 @@ def in_time_window(dt, start_hhmm, end_hhmm):
     if start <= end:
         return start <= t <= end
     return t >= start or t <= end
+
+
+def get_schedule_context(profile, now):
+    """Frozen contract: clock + routine context for one user at one instant.
+
+    Returns {"in_sleep_window": bool, "waking_hours": bool, "routine_note": str}.
+    The booleans feed the discrepancy matrix; routine_note ("walking the dog",
+    "asleep", "at home") rides on the TriggerEvent for the call script.
+    """
+    in_sleep = in_time_window(now, profile["sleep_window"]["start"],
+                              profile["sleep_window"]["end"])
+    routine_note = "asleep" if in_sleep else "at home"
+    day = now.strftime("%A").lower()
+    for entry in profile.get("routine", []):
+        if entry["day"] == day and in_time_window(now, entry["start"], entry["end"]):
+            routine_note = entry["activity"]
+            break
+    return {"in_sleep_window": in_sleep,
+            "waking_hours": not in_sleep,
+            "routine_note": routine_note}
 
 
 class UserState:
@@ -142,8 +170,8 @@ class RuleEngine:
         moving = motion in MOVING_INTENSITIES or steps > th["stationary_steps_max"]
         stationary = not moving
         hr_elevated = hr >= profile["resting_hr_bpm"] + th["elevated_hr_margin_bpm"]
-        asleep_window = in_time_window(
-            ts, profile["sleep_window"]["start"], profile["sleep_window"]["end"])
+        schedule_ctx = get_schedule_context(profile, ts)
+        asleep_window = schedule_ctx["in_sleep_window"]
 
         conditions = {
             "acute": hr >= th["acute_hr_bpm"] and stationary,
@@ -153,7 +181,10 @@ class RuleEngine:
         windows = {
             "acute": th["acute_movement_window_sec"],
             "wandering": th["wandering_window_sec"],
-            "immobility": th["immobility_window_sec"],
+            # Profiles may override the demo-compressed immobility window
+            # (the live watch user would otherwise alert while sitting still).
+            "immobility": profile.get("immobility_window_sec",
+                                      th["immobility_window_sec"]),
         }
 
         triggered = None
@@ -184,6 +215,7 @@ class RuleEngine:
             self._trigger(user_id, state, scenario, {
                 "hr": hr, "steps": steps, "motion": motion,
                 "duration_sec": int(duration), "reading_ts": ts.isoformat(timespec="seconds"),
+                "schedule_context": schedule_ctx,
             })
         elif still_fired:
             state.status = "ALERT"
@@ -222,6 +254,25 @@ class RuleEngine:
         state.cooldown_until = now + timedelta(minutes=th["cooldown_min"])
         state.status = "ALERT"
         state.active_scenario = scenario
+
+        # Frozen contract: every dispatch carries the full TriggerEvent shape
+        # (scenario, urgency, hr_now, hr_baseline, duration_sec,
+        # schedule_context, timestamp) alongside the raw reading fields.
+        last = state.readings[-1] if state.readings else None
+        gap_sec = int(context["gap_min"] * 60) if "gap_min" in context else None
+        context.update({
+            "scenario": scenario,
+            "urgency": URGENCY.get(scenario, "high"),
+            "hr_now": context.get("hr",
+                                  last["heart_rate_bpm"] if last else None),
+            "hr_baseline": profile["resting_hr_bpm"],
+            "duration_sec": context.get("duration_sec", gap_sec),
+            "schedule_context": context.get(
+                "schedule_context", get_schedule_context(profile, now)),
+            "timestamp": context.get(
+                "reading_ts", now.isoformat(timespec="seconds")),
+        })
+
         self.log_event(
             user_id, "alert",
             "ALERT [%s] for %s — HR %s, motion %s. Placing call to kin %s."
@@ -234,11 +285,14 @@ class RuleEngine:
     def check_missing_data(self, now=None):
         """Called every 60s by main.py's asyncio task."""
         now = now or datetime.now()
-        limit = timedelta(minutes=self.thresholds["missing_data_min"])
+        default_min = self.thresholds["missing_data_min"]
         with self._lock:
             for user_id, state in self.users.items():
                 if state.last_seen is None or state.missing_flagged:
                     continue
+                # Cloud-synced sources lag by design; profiles may override.
+                limit = timedelta(minutes=self.profiles[user_id].get(
+                    "missing_data_min", default_min))
                 gap = now - state.last_seen
                 if gap > limit:
                     state.missing_flagged = True
@@ -269,17 +323,9 @@ class RuleEngine:
                        "Cooldown remains active.", severity="info")
 
     def current_routine(self, user_id, dt=None):
-        """Human sentence for what this user is normally doing right now."""
-        dt = dt or datetime.now()
-        profile = self.profiles[user_id]
-        day = dt.strftime("%A").lower()
-        for entry in profile.get("routine", []):
-            if entry["day"] == day and in_time_window(dt, entry["start"], entry["end"]):
-                return entry["activity"]
-        if in_time_window(dt, profile["sleep_window"]["start"],
-                          profile["sleep_window"]["end"]):
-            return "asleep"
-        return "at home"
+        """Human phrase for what this user is normally doing right now."""
+        return get_schedule_context(self.profiles[user_id],
+                                    dt or datetime.now())["routine_note"]
 
     # -------------------------------------------------------------------- state
     def snapshot(self):
@@ -294,6 +340,7 @@ class RuleEngine:
                     cooldown_sec = int((state.cooldown_until - now).total_seconds())
                 users[user_id] = {
                     "name": profile["name"],
+                    "source": profile.get("source", "mock"),
                     "age": profile["age"],
                     "resting_hr_bpm": profile["resting_hr_bpm"],
                     "sleep_window": profile["sleep_window"],

@@ -34,10 +34,12 @@ def clean_state():
     far = (datetime.now() + timedelta(hours=12)).strftime("%H:%M")
     for uid in ("usr_demo_a", "usr_demo_b", "usr_demo_c"):
         engine.profiles[uid]["sleep_window"] = {"start": far, "end": far}
-    # usr_demo_d keeps its all-day sleep window from profiles.json (wandering).
+    # Wandering still works: /simulate stamps its sequence inside the target's
+    # sleep window (here the zero-width far-away minute), whatever the clock says.
     for uid in list(engine.users):
         engine.users[uid] = engine_mod.UserState()
     engine.events.clear()
+    main.mock_pause_until.clear()
     telephony_ctx = main.telephony.call_context
     telephony_ctx.clear()
     yield
@@ -82,7 +84,7 @@ def test_immobility_triggers_one_call():
 def test_wandering_triggers_one_call():
     r = client.post("/simulate?scenario=wandering")
     assert r.json()["final"]["classification"].startswith("wandering")
-    assert len(call_events("usr_demo_d")) == 1
+    assert len(call_events("usr_demo_c")) == 1
 
 
 def test_normal_logs_only_no_call():
@@ -156,12 +158,74 @@ def test_dtmf_2_stand_down_keeps_cooldown():
     assert user_state("usr_demo_a")["cooldown_sec_remaining"] > 0
 
 
+# ------------------------------------------------------------ frozen contract
+TRIGGER_EVENT_KEYS = {"scenario", "urgency", "hr_now", "hr_baseline",
+                      "duration_sec", "schedule_context", "timestamp"}
+
+
+def test_get_schedule_context_shape_and_routine():
+    profile = {"sleep_window": {"start": "22:00", "end": "06:00"},
+               "routine": [{"day": "monday", "start": "10:00", "end": "11:00",
+                            "activity": "walking the dog"}]}
+    monday_10am = datetime(2026, 8, 17, 10, 30)  # a Monday
+    ctx = engine_mod.get_schedule_context(profile, monday_10am)
+    assert ctx == {"in_sleep_window": False, "waking_hours": True,
+                   "routine_note": "walking the dog"}
+    ctx = engine_mod.get_schedule_context(profile, datetime(2026, 8, 17, 23, 0))
+    assert ctx["in_sleep_window"] and not ctx["waking_hours"]
+    assert ctx["routine_note"] == "asleep"
+
+
+def test_trigger_event_carries_contract_shape():
+    client.post("/simulate?scenario=acute")
+    ctx = main.telephony.call_context["usr_demo_a"]["context"]
+    assert TRIGGER_EVENT_KEYS <= set(ctx)
+    assert ctx["scenario"] == "acute" and ctx["urgency"] == "high"
+    assert ctx["hr_baseline"] == engine.profiles["usr_demo_a"]["resting_hr_bpm"]
+    assert set(ctx["schedule_context"]) == {"in_sleep_window", "waking_hours",
+                                            "routine_note"}
+
+
+def test_lost_connection_trigger_event_shape():
+    client.post("/simulate?scenario=lost_connection")
+    limit_min = engine.thresholds["missing_data_min"]
+    engine.users["usr_demo_c"].last_seen = (
+        datetime.now() - timedelta(minutes=limit_min + 1))
+    engine.check_missing_data()
+    ctx = main.telephony.call_context["usr_demo_c"]["context"]
+    assert TRIGGER_EVENT_KEYS <= set(ctx)
+    assert ctx["urgency"] == "low"
+    assert ctx["hr_now"] is not None      # last known reading's HR
+    assert ctx["duration_sec"] >= limit_min * 60
+
+
+# ------------------------------------------------------------- data sources
+def test_mock_stream_readings_are_benign():
+    # 5 minutes of continuous mock data outside the sleep window must never
+    # trip a rule: that is the whole contract of the always-on stream.
+    profile = engine.profiles["usr_demo_a"]
+    now = datetime.now()
+    for i in range(60):
+        reading = main.make_mock_reading("usr_demo_a", profile,
+                                         now + timedelta(seconds=5 * i))
+        engine.ingest(reading)
+    assert call_events("usr_demo_a") == []
+    assert user_state("usr_demo_a")["status"] == "NORMAL"
+
+
+def test_fitbit_status_endpoint_shape():
+    body = client.get("/fitbit/status").json()
+    assert {"configured", "authorized", "live_user", "login_path"} <= set(body)
+    assert body["live_user"] == "usr_live"
+    assert isinstance(body["configured"], bool)
+
+
 # --------------------------------------------------------------------- wording
 def test_no_emergency_dispatch_language():
     import pathlib
     banned = ("dial 000", "call 000", "triple zero", "dial 911", "call 911",
               "emergency dispatch", "emergency services")
-    for name in ("main.py", "engine.py", "telephony.py",
+    for name in ("main.py", "engine.py", "telephony.py", "fitbit.py",
                  "static/dashboard.html", "profiles.json", "config.yaml"):
         text = (pathlib.Path(__file__).parent / name).read_text().lower()
         for phrase in banned:

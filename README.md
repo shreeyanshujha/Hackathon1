@@ -100,27 +100,39 @@ routine, contacts).
 ```
 hackathon-app/          Fitbit Versa 2 app (SDK 4.2 / OS 4) + companion
 backend/
-  main.py               FastAPI: /ingest /state /simulate /voice/* + dashboard
+  main.py               FastAPI: /ingest /state /simulate /fitbit/* /voice/* + dashboard
   engine.py             rule engine + cooldown state machine + watchdog logic
+  fitbit.py             Fitbit Web API bridge (OAuth PKCE + intraday HR poller)
   telephony.py          Twilio call + TwiML + SMS (auto-simulated w/o creds)
   config.yaml           every threshold (demo-compressed values)
-  profiles.json         4 demo users, one per scenario
+  profiles.json         3 simulated users + 1 live card fed by the real watch
   static/dashboard.html live dashboard with one-click scenario buttons
 ```
+
+The dashboard shows four cards: **Jeff, Margaret and Harold stream simulated
+telemetry continuously** (tagged SIM — believable HR/steps at any hour, asleep
+inside their sleep windows, never tripping a rule on their own), and the
+**live card (tagged LIVE · FITBIT) is the real watch** — fed either by the
+Fitbit Web API poller (§2.4) or the on-watch developer-bridge app (§2.5).
 
 ### 2.1 Run the backend (no accounts, no logins needed)
 
 ```bash
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload \
+  --reload-include ".env" --reload-include "profiles.json" --reload-include "config.yaml"
 ```
 
-Open **http://localhost:8000** — that's the projector dashboard. The buttons
-along the top fire every scenario; without Twilio credentials calls/SMS are
-*simulated* and show up in the event log, so the whole demo works offline.
+Open **http://localhost:8000** — that's the projector dashboard. The three SIM
+cards go live within ~5 s. The buttons along the top fire every scenario
+(each pauses that user's simulated stream briefly so the alert stays visible);
+without Twilio credentials calls/SMS are *simulated* and show up in the event
+log, so the whole demo works offline. `--reload` picks up backend edits;
+`dashboard.html` edits just need a browser refresh.
 
-Tests (12 cases: all scenarios, cooldown, watchdog, DTMF, wording):
+Tests (17 cases: scenarios, cooldown, watchdog, DTMF, TriggerEvent contract,
+mock-stream safety, wording):
 
 ```bash
 cd backend && .venv/bin/pytest test_scenarios.py -v
@@ -152,14 +164,36 @@ curl localhost:8000/state | python3 -m json.tool
    - **2 = Stand down** → verbal confirmation, logged as false positive,
      cooldown stays armed.
 
-### 2.3 Run it on the watch (Versa 2)
+### 2.3 (recommended first) Live card via the Fitbit Web API
 
-The only login in this module is Fitbit's one-time developer-bridge sign-in —
+Proves the pipeline is real without flashing any code onto the watch: the
+backend polls Fitbit's cloud (Google's wearable API surface — sign in with the
+Google account the watch is paired to) for intraday heart rate + steps and
+pushes them through the same `/ingest` pipeline.
+
+1. Register an app once at <https://dev.fitbit.com/apps/new>:
+   **OAuth 2.0 Application Type = Personal** (that's what unlocks intraday HR
+   for your own account), **Callback URL = `http://localhost:8000/fitbit/callback`**.
+2. Put the Client ID in `backend/.env` as `FITBIT_CLIENT_ID=…` (see
+   `.env.example`; no secret needed — PKCE).
+3. On the dashboard, the live card shows **Connect watch →** — click it, sign
+   in, approve. Done: the poller runs every 60 s, the card fills with real HR,
+   and `resting_hr_bpm` auto-calibrates from your Fitbit profile.
+
+Freshness caveat: data reaches Fitbit's cloud only when the watch syncs with
+the phone, so expect minute-level lag (keep the Fitbit app open in your pocket
+to sync often). The live card's lost-connection threshold is 15 min
+(`missing_data_min` override in `profiles.json`) to allow for that. For true
+second-by-second streaming use the developer bridge below.
+
+### 2.4 Run it on the watch (Versa 2, second-by-second)
+
+The only login in this path is Fitbit's one-time developer-bridge sign-in —
 it is the only way any code gets onto a physical Fitbit.
 
 1. Edit the two constants at the top of `hackathon-app/companion/index.js`:
-   `BASE_URL` (your tunnel URL) and `USER_ID` (which demo profile the watch
-   streams as, default `usr_demo_a`).
+   `BASE_URL` (your tunnel URL) and `USER_ID` (which profile the watch
+   streams as, default `usr_live` — the live card).
 2. On the **watch**: Settings → Developer Bridge → wait for "Connected".
    (Watch needs Wi-Fi; keep it on the charger so Wi-Fi stays up.)
 3. On the **phone**: Fitbit app → your account → Developer Menu → enable
@@ -174,10 +208,10 @@ it is the only way any code gets onto a physical Fitbit.
    ```
    (`npx fitbit-build` alone compiles without a watch — CI-style check.)
 5. The watch face shows live HR, motion state, and a green dot when the
-   peerSocket link is up. Batches hit `/ingest` every 5 s and Jeff's card on
-   the dashboard goes live.
+   peerSocket link is up. Batches hit `/ingest` every 5 s and the live card
+   on the dashboard updates in real time.
 
-### 2.4 Demo runbook (four scenarios, ~6 minutes)
+### 2.5 Demo runbook (four scenarios, ~6 minutes)
 
 Projector shows the dashboard. Thresholds are demo-compressed in
 `backend/config.yaml` (acute 15 s, immobility 30 s, missing data 2 min,
@@ -188,8 +222,8 @@ cooldown 60 min) — production values are noted inline there.
 | 1 | Normal routine | "Normal activity (Jeff)" | HR 107+, moving → card stays green, log-only line: "consistent with activity, no action". Establishes that we don't cry wolf. |
 | 2 | Acute anomaly | "Acute (Jeff)" | HR climbs to 142 while stationary; card turns amber ("evaluating"), then red ALERT after 15 s of sustained data → kin phone rings. Press **1** live on speakerphone: responder phone rings (bridged) + SMS arrives. |
 | 3 | Prolonged immobility | "Immobility (Margaret)" | Near-zero movement in waking hours → low-urgency script. Press **2**: stand-down, logged as false positive, cooldown shown on card. |
-| 4 | Wandering | "Wandering (Elsie)" | Elsie's `sleep_window` in `profiles.json` is deliberately 00:00–23:59 so "night" overlaps demo time honestly — sustained movement inside her sleep window → schedule-relative alert. |
-| 5 | Lost connection | "Lost connection (Harold)" then wait ~2–3 min | Seeds three readings, then silence. The watchdog (60 s sweep) notices `missing_data_min` exceeded → low-urgency "lost connection with Harold's watch" call. |
+| 4 | Wandering | "Wandering (Harold)" | The sequence is stamped inside Harold's real 23:00–06:00 sleep window (the engine sees sustained movement "last night at 11 pm") → schedule-relative alert, honestly, at any demo time. |
+| 5 | Lost connection | "Lost connection (Harold)" then wait ~2–3 min | Seeds three readings, then his simulated stream pauses itself. The watchdog (60 s sweep) notices `missing_data_min` exceeded → low-urgency "lost connection with Harold's watch" call — then the stream resumes and the card logs "telemetry resumed". |
 
 Between repeat runs of the same scenario: "Reset all cooldowns" button (or
 `POST /demo/reset-cooldown/{user_id}`) — one incident = one call is enforced
@@ -203,7 +237,9 @@ per user, which is also why each scenario has its own demo user.
 - **Voice**: Twilio built-in TTS (`<Say>`). ElevenLabs is a clearly marked
   v2 stub in `telephony.py` (`elevenlabs_tts_url`).
 - **State**: everything in-memory (ring buffers + dicts). Restarting uvicorn
-  resets the world — a feature during demos.
+  resets the world — a feature during demos. (Fitbit OAuth tokens survive in
+  `backend/.fitbit_tokens.json`, gitignored, so the live card reconnects by
+  itself.)
 - The telemetry schema is identical for the watch pipeline and the
   simulator, so everything demoed via buttons is exactly what the watch
   path exercises.
