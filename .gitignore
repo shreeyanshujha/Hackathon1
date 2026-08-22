@@ -47,3 +47,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Python backend
+backend/.venv/
+backend/.env
+backend/.fitbit_tokens.json
+__pycache__/
+.pytest_cache/

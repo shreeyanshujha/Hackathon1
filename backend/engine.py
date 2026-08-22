@@ -33,6 +33,11 @@ All state lives in UserState instances (the wrapper holds one per user_id);
 all thresholds come from the config dict at evaluation time; `now` is always
 passed in, never read from the wall clock — which is what makes this module
 deterministic and testable.
+
+The RuleEngine wrapper at the bottom is the server-side shell: config and
+profile loading, the event log, the dashboard snapshot, and per-profile
+threshold overrides. main.py talks only to RuleEngine; every decision is
+delegated to the pure functions above it.
 """
 
 import json
@@ -339,6 +344,26 @@ def in_time_window(dt, start_hhmm, end_hhmm):
     return t >= start or t <= end
 
 
+def get_schedule_context(profile, now):
+    """Frozen contract: clock + routine context for one user at one instant.
+
+    Returns {"in_sleep_window": bool, "waking_hours": bool, "routine_note": str}.
+    The booleans feed the discrepancy matrix; routine_note ("walking the dog",
+    "asleep", "at home") rides on the TriggerEvent for the call script.
+    """
+    in_sleep = in_time_window(now, profile["sleep_window"]["start"],
+                              profile["sleep_window"]["end"])
+    routine_note = "asleep" if in_sleep else "at home"
+    day = now.strftime("%A").lower()
+    for entry in profile.get("routine", []):
+        if entry["day"] == day and in_time_window(now, entry["start"], entry["end"]):
+            routine_note = entry["activity"]
+            break
+    return {"in_sleep_window": in_sleep,
+            "waking_hours": not in_sleep,
+            "routine_note": routine_note}
+
+
 class RuleEngine:
     def __init__(self, config_path=None, profiles_path=None, on_trigger=None):
         self._config_path = config_path
@@ -352,6 +377,18 @@ class RuleEngine:
     @property
     def thresholds(self):
         return load_config(self._config_path)["thresholds"]
+
+    def _effective_config(self, profile):
+        """Thresholds with this profile's overrides applied.
+
+        Cloud-synced sources lag and sit still legitimately, so profiles may
+        override immobility_window_sec and missing_data_min (see usr_live).
+        """
+        cfg = dict(self.thresholds)
+        for key in ("immobility_window_sec", "missing_data_min"):
+            if key in profile:
+                cfg[key] = profile[key]
+        return cfg
 
     def log_event(self, user_id, etype, message, severity="info"):
         evt = {
@@ -370,12 +407,21 @@ class RuleEngine:
         return {**profile, "user_id": user_id,
                 "resting_hr": profile["resting_hr_bpm"]}
 
-    def _schedule_ctx(self, user_id, dt):
-        profile = self.profiles[user_id]
-        asleep = in_time_window(dt, profile["sleep_window"]["start"],
-                                profile["sleep_window"]["end"])
-        return {"in_sleep_window": asleep, "waking_hours": not asleep,
-                "routine_note": self.current_routine(user_id, dt)}
+    @staticmethod
+    def _contract_context(event, schedule_ctx, extra):
+        """Frozen TriggerEvent contract on every dispatch: scenario, urgency,
+        hr_now, hr_baseline, duration_sec, schedule_context, timestamp —
+        plus the raw reading fields telephony's scripts read (in `extra`)."""
+        return {
+            "scenario": event["scenario"],
+            "urgency": event["urgency"],
+            "hr_now": event["hr_now"],
+            "hr_baseline": event["hr_baseline"],
+            "duration_sec": event["duration_sec"],
+            "schedule_context": schedule_ctx,
+            "timestamp": event["timestamp"],
+            **extra,
+        }
 
     # ------------------------------------------------------------------ ingest
     def ingest(self, reading):
@@ -383,17 +429,18 @@ class RuleEngine:
         if user_id not in self.users:
             raise KeyError("unknown user_id %r" % user_id)
 
-        th = self.thresholds
         with self._lock:
             state = self.users[user_id]
             profile = self.profiles[user_id]
+            cfg = self._effective_config(profile)
             ts = parse_ts(reading["timestamp"])
+            schedule_ctx = get_schedule_context(profile, ts)
 
             hr = reading.get("heart_rate_bpm")
             steps = reading.get("step_count_last_5min") or 0
             motion_raw = reading.get("motion_intensity")
             moving = motion_raw in MOVING_INTENSITIES or \
-                steps > th["stationary_steps_max"]
+                steps > cfg["stationary_steps_max"]
 
             state.latest = {
                 "ts": ts.isoformat(timespec="seconds"),
@@ -415,17 +462,19 @@ class RuleEngine:
                  "step_count_last_5min": reading.get("step_count_last_5min"),
                  "motion_intensity": "moving" if moving else "stationary"},
                 self._core_profile(user_id),
-                self._schedule_ctx(user_id, ts),
-                th, ts)
+                schedule_ctx, cfg, ts)
+            # Liveness is about ARRIVAL time, not the reading's own stamp:
+            # simulated sequences are backdated (wandering up to a whole
+            # night) and must not trip the missing-data watchdog.
+            state.last_seen = datetime.now()
 
             if event is not None:
                 scenario = event["scenario"]
                 state.classification = scenario
-                context = {
+                context = self._contract_context(event, schedule_ctx, {
                     "hr": hr, "steps": steps, "motion": motion_raw,
-                    "duration_sec": event["duration_sec"],
                     "reading_ts": ts.isoformat(timespec="seconds"),
-                }
+                })
                 self.log_event(
                     user_id, "alert",
                     "ALERT [%s] for %s — HR %s, motion %s. Placing call to "
@@ -445,7 +494,7 @@ class RuleEngine:
                         % (scenario, profile["name"],
                            expiry.strftime("%H:%M:%S") if expiry else "n/a"))
             elif state.evaluation == "evaluating":
-                windows = scenario_windows(th)
+                windows = scenario_windows(cfg)
                 state.classification = "evaluating"
                 for scenario in SCENARIO_ORDER:
                     start = state.condition_start.get(scenario)
@@ -457,7 +506,7 @@ class RuleEngine:
                             scenario, duration, windows[scenario])
                         break
             elif moving and hr is not None and \
-                    hr >= profile["resting_hr_bpm"] + th["elevated_hr_margin_bpm"]:
+                    hr >= profile["resting_hr_bpm"] + cfg["elevated_hr_margin_bpm"]:
                 state.classification = "normal (elevated HR, active)"
                 self.log_event(
                     user_id, "normal_routine",
@@ -473,29 +522,31 @@ class RuleEngine:
     def check_missing_data(self, now=None):
         """Called every 60s by main.py's asyncio task."""
         now = now or datetime.now()
-        th = self.thresholds
         with self._lock:
             for user_id, state in self.users.items():
                 if state.missing_flagged:
                     continue
+                profile = self.profiles[user_id]
                 event = check_missing_data(state, self._core_profile(user_id),
-                                           th, now)
+                                           self._effective_config(profile),
+                                           now)
                 if event is None:
                     continue
-                profile = self.profiles[user_id]
                 state.missing_flagged = True
                 state.classification = "lost connection"
                 gap_min = int(event["duration_sec"] // 60)
+                context = self._contract_context(
+                    event, get_schedule_context(profile, now), {
+                        "gap_min": gap_min,
+                        "last_seen": _iso(state.last_seen),
+                    })
                 self.log_event(
                     user_id, "alert",
                     "ALERT [lost_connection] for %s — no telemetry for ~%d "
                     "min. Placing call to kin %s."
                     % (profile["name"], gap_min, profile["kin_name"]),
                     severity="alert")
-                self.on_trigger(user_id, "lost_connection", {
-                    "gap_min": gap_min,
-                    "last_seen": _iso(state.last_seen),
-                })
+                self.on_trigger(user_id, "lost_connection", context)
 
     # ------------------------------------------------------------------- admin
     def reset_cooldown(self, user_id):
@@ -520,18 +571,9 @@ class RuleEngine:
                        "Cooldown remains active.", severity="info")
 
     def current_routine(self, user_id, dt=None):
-        """Human sentence for what this user is normally doing right now."""
-        dt = dt or datetime.now()
-        profile = self.profiles[user_id]
-        day = dt.strftime("%A").lower()
-        for entry in profile.get("routine", []):
-            if entry["day"] == day and in_time_window(dt, entry["start"],
-                                                      entry["end"]):
-                return entry["activity"]
-        if in_time_window(dt, profile["sleep_window"]["start"],
-                          profile["sleep_window"]["end"]):
-            return "asleep"
-        return "at home"
+        """Human phrase for what this user is normally doing right now."""
+        return get_schedule_context(self.profiles[user_id],
+                                    dt or datetime.now())["routine_note"]
 
     # -------------------------------------------------------------------- state
     def snapshot(self):
@@ -547,6 +589,7 @@ class RuleEngine:
                             cooldown_sec, int((expiry - now).total_seconds()))
                 users[user_id] = {
                     "name": profile["name"],
+                    "source": profile.get("source", "mock"),
                     "age": profile["age"],
                     "resting_hr_bpm": profile["resting_hr_bpm"],
                     "sleep_window": profile["sleep_window"],

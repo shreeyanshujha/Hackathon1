@@ -12,6 +12,7 @@
     "kin_name": "Sarah",
     "kin_phone": "+10000000001",
     "responder_phone": "+10000000002",
+    "source": "mock",
     "demo_scenario": "acute"
   },
   "usr_demo_b": {
@@ -26,6 +27,7 @@
     "kin_name": "David",
     "kin_phone": "+10000000001",
     "responder_phone": "+10000000002",
+    "source": "mock",
     "demo_scenario": "immobility"
   },
   "usr_demo_c": {
@@ -39,20 +41,22 @@
     "kin_name": "Priya",
     "kin_phone": "+10000000001",
     "responder_phone": "+10000000002",
-    "demo_scenario": "lost_connection"
+    "source": "mock",
+    "demo_scenario": "wandering, lost_connection",
+    "_note": "Wandering simulations are stamped inside this real sleep window (the engine sees movement 'last night at 23:00'), so no fake all-day window is needed."
   },
-  "usr_demo_d": {
-    "name": "Elsie",
-    "age": 84,
-    "resting_hr_bpm": 65,
-    "sleep_window": { "start": "00:00", "end": "23:59" },
-    "routine": [
-      { "day": "sunday", "start": "10:00", "end": "11:30", "activity": "at church" }
-    ],
-    "kin_name": "Tom",
+  "usr_live": {
+    "name": "Sage",
+    "age": 21,
+    "resting_hr_bpm": 62,
+    "sleep_window": { "start": "23:00", "end": "07:00" },
+    "routine": [],
+    "kin_name": "Team phone",
     "kin_phone": "+10000000001",
     "responder_phone": "+10000000002",
-    "demo_scenario": "wandering",
-    "_note": "sleep_window is deliberately all-day so the wandering scenario can be demoed at any wall-clock time. Narrow it to a real window (e.g. 21:00-07:00) for honest overnight behaviour."
+    "source": "fitbit",
+    "missing_data_min": 15,
+    "immobility_window_sec": 600,
+    "_note": "The live card — real data from the Fitbit Web API (connect via /fitbit/login). Edit name/age/sleep to match whoever wears the watch; resting_hr_bpm auto-calibrates from Fitbit once connected. The two overrides allow for cloud-sync lag and ordinary sitting still during development."
   }
 }
