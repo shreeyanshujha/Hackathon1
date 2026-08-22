@@ -7,7 +7,7 @@ import { peerSocket } from "messaging";
 
 // ======================= CONFIGURE ME =======================
 // Public HTTPS URL of the backend (cloudflared / ngrok tunnel), no trailing /.
-const BASE_URL = "https://your-tunnel.trycloudflare.com";
+const BASE_URL = "https://containers-specially-glen-university.trycloudflare.com";
 // Which demo profile this physical watch streams as (see backend/profiles.json).
 const USER_ID = "usr_demo_a";
 // ============================================================
