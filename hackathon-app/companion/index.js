@@ -1,0 +1,63 @@
+/* Telecare companion: receives device batches over peerSocket and POSTs them
+ * to the backend /ingest endpoint. Fire-and-forget with one bounded retry —
+ * we never queue unbounded data.
+ */
+
+import { peerSocket } from "messaging";
+
+// ======================= CONFIGURE ME =======================
+// Public HTTPS URL of the backend (cloudflared / ngrok tunnel), no trailing /.
+const BASE_URL = "https://your-tunnel.trycloudflare.com";
+// Which demo profile this physical watch streams as (see backend/profiles.json).
+const USER_ID = "usr_demo_a";
+// ============================================================
+
+const RETRY_DELAY_MS = 3000;
+const STEP_WINDOW_MS = 5 * 60 * 1000;
+
+// Rolling 5-minute step window built from device step deltas.
+let stepEvents = []; // [{ts, delta}]
+
+function stepsLast5Min(now) {
+  stepEvents = stepEvents.filter((e) => now - e.ts < STEP_WINDOW_MS);
+  return stepEvents.reduce((sum, e) => sum + e.delta, 0);
+}
+
+function postReading(payload, retriesLeft) {
+  fetch(`${BASE_URL}/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error(`ingest ${res.status}`);
+    })
+    .catch((err) => {
+      if (retriesLeft > 0) {
+        setTimeout(() => postReading(payload, retriesLeft - 1), RETRY_DELAY_MS);
+      } else {
+        console.log(`ingest dropped: ${err}`);
+      }
+    });
+}
+
+peerSocket.addEventListener("message", (evt) => {
+  const m = evt.data || {};
+  const now = Date.now();
+  if (m.steps_delta > 0) stepEvents.push({ ts: now, delta: m.steps_delta });
+
+  postReading(
+    {
+      user_id: USER_ID,
+      timestamp: new Date(now).toISOString(),
+      heart_rate_bpm: m.hr || 0,
+      step_count_last_5min: stepsLast5Min(now),
+      motion_intensity: m.motion === "moving" ? "moving" : "stationary",
+      battery_pct: m.battery || 100,
+    },
+    1 // one retry, then drop
+  );
+});
+
+peerSocket.addEventListener("open", () => console.log("companion: socket open"));
+peerSocket.addEventListener("error", (e) => console.log(`companion: ${e.code}`));

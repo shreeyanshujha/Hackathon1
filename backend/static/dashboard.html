@@ -62,6 +62,13 @@
   #log .alert { color: #f87171; font-weight: 600; }
   #log .t { color: var(--dim); margin-right: 10px; }
   #offline { color: #f87171; font-weight: 600; display: none; }
+  #controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  #controls button {
+    background: #1d2a3f; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 10px; padding: 9px 16px; font-size: 15px; cursor: pointer;
+  }
+  #controls button:hover { background: #263954; }
+  #controls button.reset { border-color: #6b3030; color: #fca5a5; }
 </style>
 </head>
 <body>
@@ -70,6 +77,14 @@
   <span id="offline">backend unreachable</span>
   <span id="clock"></span>
 </header>
+<div id="controls">
+  <button onclick="simulate('acute')">&#x26A0; Acute (Jeff)</button>
+  <button onclick="simulate('immobility')">&#x1F6CB; Immobility (Margaret)</button>
+  <button onclick="simulate('wandering')">&#x1F319; Wandering (Elsie)</button>
+  <button onclick="simulate('normal')">&#x1F3C3; Normal activity (Jeff)</button>
+  <button onclick="simulate('lost_connection')">&#x1F4F6; Lost connection (Harold)</button>
+  <button class="reset" onclick="resetAll()">Reset all cooldowns</button>
+</div>
 <div class="grid" id="cards"></div>
 <div id="log-panel">
   <h2>Event log</h2>
@@ -133,6 +148,15 @@ async function tick() {
   } catch (e) {
     document.getElementById("offline").style.display = "inline";
   }
+}
+async function simulate(scenario) {
+  await fetch("/simulate?scenario=" + scenario, { method: "POST" });
+  tick();
+}
+async function resetAll() {
+  for (const uid of ["usr_demo_a", "usr_demo_b", "usr_demo_c", "usr_demo_d"])
+    await fetch("/demo/reset-cooldown/" + uid, { method: "POST" });
+  tick();
 }
 tick();
 setInterval(tick, 2000);
