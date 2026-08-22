@@ -1,0 +1,58 @@
+{
+  "usr_demo_a": {
+    "name": "Jeff",
+    "age": 74,
+    "resting_hr_bpm": 62,
+    "sleep_window": { "start": "22:30", "end": "06:30" },
+    "routine": [
+      { "day": "monday", "start": "10:00", "end": "11:00", "activity": "walking the dog" },
+      { "day": "wednesday", "start": "09:00", "end": "10:00", "activity": "at the community centre" },
+      { "day": "saturday", "start": "08:00", "end": "09:00", "activity": "gardening" }
+    ],
+    "kin_name": "Sarah",
+    "kin_phone": "+10000000001",
+    "responder_phone": "+10000000002",
+    "demo_scenario": "acute"
+  },
+  "usr_demo_b": {
+    "name": "Margaret",
+    "age": 81,
+    "resting_hr_bpm": 68,
+    "sleep_window": { "start": "21:30", "end": "07:00" },
+    "routine": [
+      { "day": "tuesday", "start": "14:00", "end": "15:00", "activity": "at her book club" },
+      { "day": "friday", "start": "10:00", "end": "11:00", "activity": "doing her shopping" }
+    ],
+    "kin_name": "David",
+    "kin_phone": "+10000000001",
+    "responder_phone": "+10000000002",
+    "demo_scenario": "immobility"
+  },
+  "usr_demo_c": {
+    "name": "Harold",
+    "age": 79,
+    "resting_hr_bpm": 60,
+    "sleep_window": { "start": "23:00", "end": "06:00" },
+    "routine": [
+      { "day": "thursday", "start": "11:00", "end": "12:00", "activity": "playing bowls" }
+    ],
+    "kin_name": "Priya",
+    "kin_phone": "+10000000001",
+    "responder_phone": "+10000000002",
+    "demo_scenario": "lost_connection"
+  },
+  "usr_demo_d": {
+    "name": "Elsie",
+    "age": 84,
+    "resting_hr_bpm": 65,
+    "sleep_window": { "start": "00:00", "end": "23:59" },
+    "routine": [
+      { "day": "sunday", "start": "10:00", "end": "11:30", "activity": "at church" }
+    ],
+    "kin_name": "Tom",
+    "kin_phone": "+10000000001",
+    "responder_phone": "+10000000002",
+    "demo_scenario": "wandering",
+    "_note": "sleep_window is deliberately all-day so the wandering scenario can be demoed at any wall-clock time. Narrow it to a real window (e.g. 21:00-07:00) for honest overnight behaviour."
+  }
+}

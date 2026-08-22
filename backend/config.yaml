@@ -1,0 +1,31 @@
+# Telecare anomaly-detection configuration.
+# Every threshold the engine uses lives here — nothing is hardcoded in engine.py.
+# Values below are compressed for live demos; production values noted inline.
+
+demo_mode: true
+
+thresholds:
+  # Acute anomaly: HR at/above this while stationary, sustained for the window.
+  acute_hr_bpm: 120
+  acute_movement_window_sec: 15
+
+  # Prolonged immobility during waking hours. Production default would be hours.
+  immobility_window_sec: 30
+
+  # Wandering: sustained movement inside the profile's sleep window.
+  wandering_window_sec: 20
+
+  # Missing-data watchdog: minutes without telemetry before a lost-connection
+  # alert fires. Production ~15-20.
+  missing_data_min: 2
+
+  # One incident = one call. Minutes before the same user can trigger again.
+  cooldown_min: 60
+
+  # A reading counts as "stationary" when motion_intensity says so AND
+  # step_count_last_5min is at or below this.
+  stationary_steps_max: 5
+
+  # "HR elevated" for the normal-routine (log-only) classification:
+  # resting HR + this margin.
+  elevated_hr_margin_bpm: 30

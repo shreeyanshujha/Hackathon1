@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Telecare Watch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0e1420; --card: #17202f; --edge: #263349;
+    --text: #e8eef7; --dim: #8fa1ba;
+    --ok: #34d399; --warn: #fbbf24; --alert: #f87171;
+    --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    padding: 24px 32px; min-height: 100vh;
+  }
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: .5px; }
+  #clock { color: var(--dim); font-size: 16px; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--edge);
+    border-radius: 14px; padding: 18px 20px;
+    border-left-width: 6px; transition: border-color .3s;
+  }
+  .card.NORMAL     { border-left-color: #34d399; }
+  .card.EVALUATING { border-left-color: #fbbf24; }
+  .card.ALERT      { border-left-color: #f87171; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 22px rgba(248,113,113,.45); } }
+  .who { display: flex; align-items: baseline; gap: 10px; }
+  .who .name { font-size: 22px; font-weight: 600; }
+  .who .meta { color: var(--dim); font-size: 14px; }
+  .badge {
+    margin-left: auto; font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    padding: 3px 12px; border-radius: 999px;
+  }
+  .badge.NORMAL     { background: #123c2e; color: #34d399; }
+  .badge.EVALUATING { background: #443309; color: #fbbf24; }
+  .badge.ALERT      { background: #4a1414; color: #f87171; }
+  .vitals { display: flex; align-items: center; gap: 22px; margin: 16px 0 10px; }
+  .hr-big { font-size: 54px; font-weight: 700; line-height: 1; min-width: 120px; }
+  .hr-big small { font-size: 16px; color: var(--dim); font-weight: 400; }
+  .spark { flex: 1; }
+  .spark polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+  .rows { font-size: 15px; display: grid; gap: 5px; }
+  .rows .row { display: flex; justify-content: space-between; }
+  .rows .k { color: var(--dim); }
+  .stale { color: #f87171; font-weight: 600; }
+  .cool { color: #fbbf24; }
+  #log-panel { margin-top: 26px; }
+  #log-panel h2 { font-size: 17px; color: var(--dim); margin-bottom: 10px;
+                  text-transform: uppercase; letter-spacing: 1.5px; }
+  #log {
+    background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+    padding: 14px 18px; font-size: 15px; line-height: 1.75;
+    max-height: 300px; overflow-y: auto;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+  }
+  #log .alert { color: #f87171; font-weight: 600; }
+  #log .t { color: var(--dim); margin-right: 10px; }
+  #offline { color: #f87171; font-weight: 600; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>&#x2764;&#xFE0E; Telecare Watch</h1>
+  <span id="offline">backend unreachable</span>
+  <span id="clock"></span>
+</header>
+<div class="grid" id="cards"></div>
+<div id="log-panel">
+  <h2>Event log</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+const cards = document.getElementById("cards");
+const logEl = document.getElementById("log");
+
+function sparkline(points) {
+  if (!points || points.length < 2) return "";
+  const w = 220, h = 64, min = Math.min(...points) - 4, max = Math.max(...points) + 4;
+  const pts = points.map((v, i) =>
+    (i * w / (points.length - 1)).toFixed(1) + "," +
+    (h - (v - min) / (max - min) * h).toFixed(1)).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" height="64">
+            <polyline points="${pts}"/></svg>`;
+}
+
+function card(uid, u) {
+  const latest = u.latest || {};
+  const seen = u.last_seen_sec_ago;
+  const seenTxt = seen == null ? "never" : (seen < 90 ? seen + "s ago" : Math.round(seen/60) + "m ago");
+  const stale = u.missing_flagged || (seen != null && seen > 60);
+  const cd = u.cooldown_sec_remaining;
+  const cdTxt = cd > 0 ? Math.ceil(cd/60) + " min left" : "clear";
+  return `<div class="card ${u.status}">
+    <div class="who">
+      <span class="name">${u.name}</span>
+      <span class="meta">${u.age} &middot; rest ${u.resting_hr_bpm} bpm &middot; ${uid}</span>
+      <span class="badge ${u.status}">${u.status}</span>
+    </div>
+    <div class="vitals">
+      <div class="hr-big">${latest.heart_rate_bpm ?? "--"}<small> bpm</small></div>
+      ${sparkline(u.hr_history)}
+    </div>
+    <div class="rows">
+      <div class="row"><span class="k">Motion</span><span>${latest.motion_intensity ?? "--"}
+        &nbsp;(${latest.step_count_last_5min ?? "--"} steps/5min)</span></div>
+      <div class="row"><span class="k">Evaluation</span><span>${u.classification}</span></div>
+      <div class="row"><span class="k">Cooldown</span><span class="${cd>0?"cool":""}">${cdTxt}</span></div>
+      <div class="row"><span class="k">Last data</span>
+        <span class="${stale?"stale":""}">${seenTxt}${u.missing_flagged?" &mdash; LOST CONNECTION":""}</span></div>
+      <div class="row"><span class="k">Sleep window</span>
+        <span>${u.sleep_window.start}&ndash;${u.sleep_window.end} &middot; kin: ${u.kin_name}</span></div>
+    </div>
+  </div>`;
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/state");
+    const s = await r.json();
+    document.getElementById("offline").style.display = "none";
+    document.getElementById("clock").textContent = s.server_time.replace("T", "  ");
+    cards.innerHTML = Object.entries(s.users).map(([uid, u]) => card(uid, u)).join("");
+    logEl.innerHTML = s.events.map(e =>
+      `<div class="${e.severity}"><span class="t">${e.ts.slice(11)}</span>` +
+      `[${e.user_id}] ${e.message}</div>`).join("") || "<span class='t'>no events yet</span>";
+  } catch (e) {
+    document.getElementById("offline").style.display = "inline";
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
