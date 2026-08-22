@@ -15,8 +15,10 @@ from xml.sax.saxutils import escape
 
 try:
     from twilio.rest import Client as TwilioClient
+    from twilio.request_validator import RequestValidator
 except ImportError:  # keeps the demo runnable without the twilio package
     TwilioClient = None
+    RequestValidator = None
 
 
 def env(name, default=""):
@@ -26,6 +28,20 @@ def env(name, default=""):
 def twilio_ready():
     return bool(TwilioClient and env("TWILIO_ACCOUNT_SID")
                 and env("TWILIO_AUTH_TOKEN") and env("TWILIO_FROM_NUMBER"))
+
+
+def valid_twilio_request(url, params, signature):
+    """Authenticate a /voice/* webhook request against X-Twilio-Signature.
+
+    No auth token configured means simulated mode: webhooks are only exercised
+    by the offline demo and tests, so validation is not applicable.
+    """
+    token = env("TWILIO_AUTH_TOKEN")
+    if not token:
+        return True
+    if RequestValidator is None:
+        return False
+    return RequestValidator(token).validate(url, params, signature or "")
 
 
 def kin_number(profile):

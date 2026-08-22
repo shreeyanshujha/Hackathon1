@@ -11,6 +11,9 @@ const BASE_URL = "https://containers-specially-glen-university.trycloudflare.com
 // Which profile this physical watch streams as (see backend/profiles.json).
 // usr_live is the live card; the usr_demo_* cards stream mock data on their own.
 const USER_ID = "usr_live";
+// Must match API_SHARED_SECRET in backend/.env; leave "" if the backend
+// runs without one.
+const API_KEY = "";
 // ============================================================
 
 const RETRY_DELAY_MS = 3000;
@@ -25,9 +28,11 @@ function stepsLast5Min(now) {
 }
 
 function postReading(payload, retriesLeft) {
+  const headers = { "Content-Type": "application/json" };
+  if (API_KEY) headers["X-Api-Key"] = API_KEY;
   fetch(`${BASE_URL}/ingest`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   })
     .then((res) => {
@@ -51,7 +56,9 @@ peerSocket.addEventListener("message", (evt) => {
     {
       user_id: USER_ID,
       timestamp: new Date(now).toISOString(),
-      heart_rate_bpm: m.hr || 0,
+      // hr 0 means the sensor had no reading (off-wrist); the contract is
+      // null so the engine treats it as unknown, not a real low HR.
+      heart_rate_bpm: m.hr > 0 ? m.hr : null,
       step_count_last_5min: stepsLast5Min(now),
       motion_intensity: m.motion === "moving" ? "moving" : "stationary",
       battery_pct: m.battery || 100,

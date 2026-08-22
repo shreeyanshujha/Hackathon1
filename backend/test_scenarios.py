@@ -58,6 +58,18 @@ def test_ingest_exact_schema():
     assert r.status_code == 200 and r.json()["ok"]
 
 
+def test_ingest_accepts_null_heart_rate():
+    # Sensor dropout: the watch may have no HR reading (off-wrist, poor
+    # contact). The contract is null — never 0 — and the engine must treat it
+    # as unknown, not as a real (low) heart rate.
+    r = client.post("/ingest", json={
+        "user_id": "usr_demo_a", "timestamp": datetime.now().isoformat(),
+        "heart_rate_bpm": None, "step_count_last_5min": 0,
+        "motion_intensity": "stationary", "battery_pct": 84})
+    assert r.status_code == 200 and r.json()["ok"]
+    assert user_state("usr_demo_a")["latest"]["heart_rate_bpm"] is None
+
+
 def test_ingest_unknown_user_404():
     r = client.post("/ingest", json={
         "user_id": "usr_nope", "timestamp": datetime.now().isoformat(),
@@ -92,6 +104,36 @@ def test_normal_logs_only_no_call():
     assert r.json()["final"]["status"] == "NORMAL"
     assert call_events("usr_demo_a") == []
     assert events("normal_routine", "usr_demo_a")
+
+
+# ----------------------------------------------------- simulation timestamping
+SLEEP = {"sleep_window": {"start": "22:30", "end": "06:30"}}
+
+
+def test_waking_scenarios_stamped_outside_sleep_window_at_night():
+    # Demoing "normal" or "immobility" during the profile's sleep window must
+    # not stamp movement/stillness inside it (a normal-activity demo at 2am
+    # used to fire a false wandering alert).
+    asleep_now = datetime(2026, 8, 22, 2, 0)
+    for scenario in ("normal", "immobility"):
+        start = main.sim_start_time(SLEEP, scenario, 5, asleep_now)
+        for i in range(5):
+            ts = start + timedelta(seconds=main.SIM_CADENCE_SEC * i)
+            assert not engine_mod.in_time_window(ts, "22:30", "06:30"), \
+                "%s reading %d stamped inside sleep window" % (scenario, i)
+
+
+def test_waking_scenarios_backdated_to_now_when_awake():
+    awake_now = datetime(2026, 8, 22, 14, 0)
+    start = main.sim_start_time(SLEEP, "normal", 5, awake_now)
+    assert start + timedelta(seconds=main.SIM_CADENCE_SEC * 4) == awake_now
+
+
+def test_wandering_stamped_inside_most_recent_sleep_window():
+    awake_now = datetime(2026, 8, 22, 14, 0)
+    start = main.sim_start_time(SLEEP, "wandering", 7, awake_now)
+    assert engine_mod.in_time_window(start, "22:30", "06:30")
+    assert start <= awake_now
 
 
 # ------------------------------------------------------------ cooldown machine
@@ -218,6 +260,71 @@ def test_fitbit_status_endpoint_shape():
     assert {"configured", "authorized", "live_user", "login_path"} <= set(body)
     assert body["live_user"] == "usr_live"
     assert isinstance(body["configured"], bool)
+
+
+# -------------------------------------------------------------------- security
+def _reading():
+    return {"user_id": "usr_demo_a", "timestamp": datetime.now().isoformat(),
+            "heart_rate_bpm": 72, "step_count_last_5min": 120,
+            "motion_intensity": "moderate", "battery_pct": 84}
+
+
+def test_api_secret_enforced_when_configured(monkeypatch):
+    # The demo runs behind a public tunnel; with API_SHARED_SECRET set, the
+    # telemetry/demo/state surface must reject requests without the key.
+    monkeypatch.setenv("API_SHARED_SECRET", "hunter2")
+    assert client.post("/ingest", json=_reading()).status_code == 401
+    assert client.post("/simulate?scenario=acute").status_code == 401
+    assert client.post("/demo/reset-cooldown/usr_demo_a").status_code == 401
+    assert client.get("/state").status_code == 401
+    bad = {"X-Api-Key": "wrong"}
+    assert client.post("/ingest", json=_reading(), headers=bad).status_code == 401
+
+    ok = {"X-Api-Key": "hunter2"}
+    assert client.post("/ingest", json=_reading(), headers=ok).status_code == 200
+    assert client.get("/state", headers=ok).status_code == 200
+    assert client.post("/simulate?scenario=acute", headers=ok).status_code == 200
+    assert client.post("/demo/reset-cooldown/usr_demo_a",
+                       headers=ok).status_code == 200
+    # The dashboard page itself stays open — static HTML, no data in it.
+    assert client.get("/").status_code == 200
+
+
+def test_twilio_signature_enforced_when_configured(monkeypatch):
+    # With an auth token set, the /voice/* webhooks must reject requests that
+    # don't carry a valid X-Twilio-Signature — otherwise anyone who knows the
+    # tunnel URL can POST Digits=1 and fire the escalation SMS.
+    from twilio.request_validator import RequestValidator
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test_token_123")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://demo.example.com")
+    client.post("/simulate?scenario=acute")
+
+    path = "/voice/handle?user_id=usr_demo_a&scenario=acute"
+    assert client.post(path, data={"Digits": "2"}).status_code == 403
+    assert client.post(path, data={"Digits": "2"},
+                       headers={"X-Twilio-Signature": "bogus"}).status_code == 403
+    assert client.get("/voice/answer?user_id=usr_demo_a"
+                      "&scenario=acute").status_code == 403
+
+    sig = RequestValidator("test_token_123").compute_signature(
+        "https://demo.example.com" + path, {"Digits": "2"})
+    r = client.post(path, data={"Digits": "2"},
+                    headers={"X-Twilio-Signature": sig})
+    assert r.status_code == 200 and "standing down" in r.text.lower()
+
+
+def test_voice_webhooks_open_without_twilio_token():
+    # Simulated mode (no Twilio credentials): webhooks stay callable so the
+    # offline demo and this test suite can exercise the DTMF tree directly.
+    r = client.post("/voice/handle?user_id=usr_demo_a&scenario=acute",
+                    data={"Digits": "2"})
+    assert r.status_code == 200
+
+
+def test_api_open_without_secret():
+    # No API_SHARED_SECRET in the environment -> zero-config demo, no auth.
+    assert client.post("/ingest", json=_reading()).status_code == 200
+    assert client.get("/state").status_code == 200
 
 
 # --------------------------------------------------------------------- wording

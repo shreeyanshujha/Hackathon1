@@ -102,6 +102,15 @@
 const cards = document.getElementById("cards");
 const logEl = document.getElementById("log");
 
+// When the backend has API_SHARED_SECRET set, open the dashboard as
+// http://localhost:8000/?key=THE_SECRET — every request then carries it.
+const API_KEY = new URLSearchParams(location.search).get("key");
+function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers);
+  if (API_KEY) headers["X-Api-Key"] = API_KEY;
+  return fetch(path, Object.assign({}, opts, { headers }));
+}
+
 function sparkline(points) {
   if (!points || points.length < 2) return "";
   const w = 220, h = 64, min = Math.min(...points) - 4, max = Math.max(...points) + 4;
@@ -165,7 +174,8 @@ let lastState = null;
 
 async function tick() {
   try {
-    const r = await fetch("/state");
+    const r = await api("/state");
+    if (r.status === 401) throw new Error("unauthorized — add ?key=SECRET to the URL");
     const s = await r.json();
     lastState = s;
     document.getElementById("offline").style.display = "none";
@@ -179,13 +189,13 @@ async function tick() {
   }
 }
 async function simulate(scenario) {
-  await fetch("/simulate?scenario=" + scenario, { method: "POST" });
+  await api("/simulate?scenario=" + scenario, { method: "POST" });
   tick();
 }
 async function resetAll() {
   const uids = lastState ? Object.keys(lastState.users) : [];
   for (const uid of uids)
-    await fetch("/demo/reset-cooldown/" + uid, { method: "POST" });
+    await api("/demo/reset-cooldown/" + uid, { method: "POST" });
   tick();
 }
 tick();

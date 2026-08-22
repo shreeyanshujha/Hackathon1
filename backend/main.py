@@ -15,12 +15,14 @@ import asyncio
 import contextlib
 import math
 import random
+import secrets as pysecrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Query
+from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Query,
+                     Request)
 from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response)
 from pydantic import BaseModel
@@ -164,17 +166,34 @@ app = FastAPI(title="Telecare Anomaly Detection", lifespan=lifespan)
 STATIC = Path(__file__).resolve().parent / "static"
 
 
+# ------------------------------------------------------------------- security
+# The demo runs behind a public tunnel, so the telemetry/demo/state surface is
+# reachable by anyone who learns the URL. Setting API_SHARED_SECRET in .env
+# closes it: those endpoints then require a matching X-Api-Key header (the
+# dashboard passes it via http://localhost:8000/?key=..., the watch companion
+# via its API_KEY constant). Unset = open, for the zero-config local demo.
+def require_api_key(x_api_key: str = Header(None)):
+    secret = tel.env("API_SHARED_SECRET")
+    if secret and not pysecrets.compare_digest(x_api_key or "", secret):
+        raise HTTPException(401, "missing or invalid X-Api-Key header")
+
+
+protected = [Depends(require_api_key)]
+
+
 # ------------------------------------------------------------------ telemetry
 class Telemetry(BaseModel):
     user_id: str
     timestamp: str
-    heart_rate_bpm: int
+    # None = sensor dropout (off-wrist, poor contact) — engine freezes
+    # HR-based rules for that reading instead of seeing a real low HR.
+    heart_rate_bpm: int | None = None
     step_count_last_5min: int
     motion_intensity: str
     battery_pct: int = 100
 
 
-@app.post("/ingest")
+@app.post("/ingest", dependencies=protected)
 def ingest(reading: Telemetry):
     try:
         result = engine.ingest(reading.model_dump())
@@ -183,7 +202,7 @@ def ingest(reading: Telemetry):
     return {"ok": True, **result}
 
 
-@app.get("/state")
+@app.get("/state", dependencies=protected)
 def state():
     snap = engine.snapshot()
     snap["fitbit"] = fitbit.status()
@@ -267,8 +286,38 @@ SCENARIOS = {
     "lost_connection": ("usr_demo_c", _seq_lost_connection),
 }
 
+# Scenarios whose rules only make sense in waking hours; stamping them inside
+# the sleep window would misfire other rules (movement at 2am = wandering).
+WAKING_SCENARIOS = ("normal", "immobility")
 
-@app.post("/simulate")
+
+def _most_recent(now, hhmm):
+    """Most recent occurrence of a HH:MM time of day, at or before now."""
+    h, m = (int(x) for x in hhmm.split(":"))
+    occ = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    return occ - timedelta(days=1) if occ > now else occ
+
+
+def sim_start_time(profile, scenario, seq_len, now):
+    """Timestamp of a simulated sequence's first reading.
+
+    wandering: inside the sleep window's most recent occurrence.
+    normal/immobility: need waking hours — if now is inside the sleep window,
+    the sequence ends just before the window began (yesterday evening).
+    everything else: backdated so the last reading lands on now.
+    """
+    window = profile["sleep_window"]
+    span = timedelta(seconds=SIM_CADENCE_SEC * (seq_len - 1))
+    if scenario == "wandering":
+        return _most_recent(now, window["start"])
+    end = now
+    if scenario in WAKING_SCENARIOS and \
+            engine_mod.in_time_window(now, window["start"], window["end"]):
+        end = _most_recent(now, window["start"]) - timedelta(seconds=60)
+    return end - span
+
+
+@app.post("/simulate", dependencies=protected)
 def simulate(scenario: str = Query(...), user_id: str = Query(None)):
     if scenario not in SCENARIOS:
         raise HTTPException(400, "scenario must be one of %s" % list(SCENARIOS))
@@ -286,17 +335,8 @@ def simulate(scenario: str = Query(...), user_id: str = Query(None)):
         pause_mock_stream(uid, pause)
 
     seq = seq_fn(engine.profiles[uid])
-    if scenario == "wandering":
-        # Wandering means movement inside the sleep window, so stamp the
-        # sequence at the window's most recent occurrence (e.g. last night)
-        # for honest overnight behaviour at any wall-clock demo time.
-        h, m = (int(x) for x in
-                engine.profiles[uid]["sleep_window"]["start"].split(":"))
-        start = datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
-        if start > datetime.now():
-            start -= timedelta(days=1)
-    else:
-        start = datetime.now() - timedelta(seconds=SIM_CADENCE_SEC * (len(seq) - 1))
+    start = sim_start_time(engine.profiles[uid], scenario, len(seq),
+                           datetime.now())
     results = []
     for i, (hr, steps, motion) in enumerate(seq):
         ts = start + timedelta(seconds=SIM_CADENCE_SEC * i)
@@ -315,7 +355,7 @@ def simulate(scenario: str = Query(...), user_id: str = Query(None)):
             "readings_injected": len(seq), "final": results[-1], "note": note}
 
 
-@app.post("/demo/reset-cooldown/{user_id}")
+@app.post("/demo/reset-cooldown/{user_id}", dependencies=protected)
 def reset_cooldown(user_id: str):
     if user_id not in engine.profiles:
         raise HTTPException(404, "unknown user_id %r" % user_id)
@@ -328,7 +368,24 @@ def _twiml(xml):
     return Response(content=xml, media_type="application/xml")
 
 
-@app.api_route("/voice/answer", methods=["GET", "POST"])
+async def require_twilio_signature(request: Request):
+    """403 unless the webhook request is authentically from Twilio.
+
+    Twilio signs the exact URL it requested, which is the public tunnel URL —
+    so the check reconstructs it from PUBLIC_BASE_URL, not from the local
+    request host. Skipped entirely when no auth token is configured.
+    """
+    params = dict(await request.form()) if request.method == "POST" else {}
+    url = tel.env("PUBLIC_BASE_URL") + request.url.path
+    if request.url.query:
+        url += "?" + request.url.query
+    if not tel.valid_twilio_request(url, params,
+                                    request.headers.get("X-Twilio-Signature")):
+        raise HTTPException(403, "invalid or missing Twilio signature")
+
+
+@app.api_route("/voice/answer", methods=["GET", "POST"],
+               dependencies=[Depends(require_twilio_signature)])
 def voice_answer(user_id: str = Query(...), scenario: str = Query(...)):
     profile = engine.profiles.get(user_id)
     if not profile:
@@ -345,7 +402,8 @@ def voice_answer(user_id: str = Query(...), scenario: str = Query(...)):
                                    base_url, user_id))
 
 
-@app.api_route("/voice/handle", methods=["GET", "POST"])
+@app.api_route("/voice/handle", methods=["GET", "POST"],
+               dependencies=[Depends(require_twilio_signature)])
 async def voice_handle(user_id: str = Query(...), scenario: str = Query(...),
                        Digits: str = Form(None)):
     profile = engine.profiles.get(user_id)

@@ -52,5 +52,6 @@ yarn-error.*
 backend/.venv/
 backend/.env
 backend/.fitbit_tokens.json
+backend/*.log
 __pycache__/
 .pytest_cache/

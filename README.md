@@ -231,6 +231,13 @@ per user, which is also why each scenario has its own demo user.
 
 ### Notes
 
+- **Tunnel security**: whenever `PUBLIC_BASE_URL` points at a live tunnel, set
+  `API_SHARED_SECRET` in `backend/.env` (any random string). `/ingest`,
+  `/simulate`, `/state` and `/demo/*` then require it as an `X-Api-Key`
+  header: open the dashboard as `http://localhost:8000/?key=THE_SECRET` and
+  set the same value as `API_KEY` in `hackathon-app/companion/index.js`.
+  The `/voice/*` webhooks verify Twilio's request signature automatically
+  once `TWILIO_AUTH_TOKEN` is set. Unset both = the zero-config open demo.
 - **Wording**: escalation is called *Escalate & Notify* everywhere; a test
   (`test_no_emergency_dispatch_language`) fails the build if dispatch-style
   language sneaks into code, UI, or scripts.
