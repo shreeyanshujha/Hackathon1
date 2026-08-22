@@ -26,6 +26,13 @@ thresholds:
   # step_count_last_5min is at or below this.
   stationary_steps_max: 5
 
+  # Immobility needs steps at/below this to count as "near zero".
+  immobility_steps_max: 5
+
+  # Hysteresis: one anomalous-then-clear reading must not reset a building
+  # condition timer; the condition has to stay clear this long continuously.
+  hysteresis_clear_sec: 5
+
   # "HR elevated" for the normal-routine (log-only) classification:
   # resting HR + this margin.
   elevated_hr_margin_bpm: 30
