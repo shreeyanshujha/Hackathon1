@@ -13,6 +13,7 @@ Sources feeding the one ingest pipeline:
 
 import asyncio
 import contextlib
+import json
 import math
 import random
 import secrets as pysecrets
@@ -29,6 +30,7 @@ from pydantic import BaseModel
 
 import engine as engine_mod
 import fitbit as fitbit_mod
+import profile_bridge as bridge
 import telephony as tel
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -212,6 +214,43 @@ def state():
 @app.get("/")
 def dashboard():
     return FileResponse(STATIC / "dashboard.html")
+
+
+# ---------------------------------------------------- module 1 profile sync
+@app.post("/profile", dependencies=protected)
+def sync_profile(baseline: dict):
+    """Accept a Module 1 UserBaselineProfile and apply it to the live card.
+
+    The onboarded person is the watch wearer, so the contract's fields
+    (sleep window, weekly routine, contacts, demographics) update usr_live
+    in place; source, calibrated resting HR and threshold overrides are
+    preserved. The merge is persisted to the gitignored profiles.local.json
+    overlay so it survives a restart.
+    """
+    if LIVE_USER_ID is None:
+        raise HTTPException(409, "no live profile card configured")
+    try:
+        fields = bridge.baseline_to_profile(baseline)
+    except bridge.ConsentError as exc:
+        raise HTTPException(403, str(exc))
+    except bridge.BaselineError as exc:
+        raise HTTPException(422, str(exc))
+
+    engine.update_profile(LIVE_USER_ID, fields)
+    overlay_path = engine_mod.LOCAL_PROFILES_PATH
+    overlay = json.loads(overlay_path.read_text()) if overlay_path.exists() \
+        else {}
+    overlay[LIVE_USER_ID] = {**overlay.get(LIVE_USER_ID, {}), **fields}
+    overlay_path.write_text(json.dumps(overlay, indent=2))
+    engine.log_event(
+        LIVE_USER_ID, "profile_synced",
+        "Baseline profile synced from onboarding app: %s (%s), kin %s — "
+        "sleep %s–%s, %d routine entries."
+        % (fields["name"], fields["age"], fields["kin_name"],
+           fields["sleep_window"]["start"], fields["sleep_window"]["end"],
+           len(fields["routine"])))
+    return {"ok": True, "user_id": LIVE_USER_ID,
+            "profile": engine.profiles[LIVE_USER_ID]}
 
 
 # ------------------------------------------------------------------- fitbit

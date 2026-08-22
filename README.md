@@ -113,7 +113,7 @@ The dashboard shows four cards: **Jeff, Margaret and Harold stream simulated
 telemetry continuously** (tagged SIM — believable HR/steps at any hour, asleep
 inside their sleep windows, never tripping a rule on their own), and the
 **live card (tagged LIVE · FITBIT) is the real watch** — fed either by the
-Fitbit Web API poller (§2.4) or the on-watch developer-bridge app (§2.5).
+Fitbit Web API poller (§2.3) or the on-watch developer-bridge app (§2.4).
 
 ### 2.1 Run the backend (no accounts, no logins needed)
 
@@ -211,7 +211,26 @@ it is the only way any code gets onto a physical Fitbit.
    peerSocket link is up. Batches hit `/ingest` every 5 s and the live card
    on the dashboard updates in real time.
 
-### 2.5 Demo runbook (four scenarios, ~6 minutes)
+### 2.5 Module 1 → Module 2: sync the onboarded baseline
+
+The Expo app's finished `UserBaselineProfile` drives the live card. On the
+post-setup home screen, tap **Send to watch service** (set `BACKEND_URL` —
+your computer's LAN IP or tunnel URL — and, if used, `API_KEY` in
+`src/config.js` first). Under the hood this is `POST /profile`:
+
+- The **live card takes on the onboarded person**: name, age (from dob),
+  sleep window (`typicalSleep`→`typicalWake`), weekly routine, and the
+  primary emergency contact as kin (a second contact becomes the responder
+  number; the `.env` overrides still win).
+- What onboarding can't know is preserved: `source: fitbit`, the calibrated
+  `resting_hr_bpm`, and the cloud-lag threshold overrides.
+- **Consent is a hard gate** — a profile without `monitoringConsent` is
+  refused with 403, never silently accepted.
+- The merge persists to the gitignored `backend/profiles.local.json`
+  overlay, so a backend restart keeps the person (delete the file to get
+  the stock demo card back).
+
+### 2.6 Demo runbook (four scenarios, ~6 minutes)
 
 Projector shows the dashboard. Thresholds are demo-compressed in
 `backend/config.yaml` (acute 15 s, immobility 30 s, missing data 2 min,

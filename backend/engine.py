@@ -314,9 +314,24 @@ def load_config(path=None):
         return yaml.safe_load(f)
 
 
-def load_profiles(path=None):
+# Gitignored per-user overrides written by POST /profile (a synced Module 1
+# UserBaselineProfile). Keeps real PII out of git and the demo profiles
+# pristine, while surviving a restart.
+LOCAL_PROFILES_PATH = BASE_DIR / "profiles.local.json"
+
+
+def load_profiles(path=None, overlay_path=None):
     with open(path or BASE_DIR / "profiles.json") as f:
-        return json.load(f)
+        profiles = json.load(f)
+    overlay_path = Path(overlay_path or LOCAL_PROFILES_PATH)
+    if overlay_path.exists():
+        overlay = json.loads(overlay_path.read_text())
+        # Only known users: an overlay entry can't invent a card that no
+        # data source feeds (it would just trip the missing-data watchdog).
+        for uid, fields in overlay.items():
+            if uid in profiles:
+                profiles[uid].update(fields)
+    return profiles
 
 
 def parse_ts(value):
@@ -365,9 +380,10 @@ def get_schedule_context(profile, now):
 
 
 class RuleEngine:
-    def __init__(self, config_path=None, profiles_path=None, on_trigger=None):
+    def __init__(self, config_path=None, profiles_path=None, on_trigger=None,
+                 overlay_path=None):
         self._config_path = config_path
-        self.profiles = load_profiles(profiles_path)
+        self.profiles = load_profiles(profiles_path, overlay_path)
         self.on_trigger = on_trigger or (lambda *a, **k: None)
         self.users = {uid: UserState() for uid in self.profiles}
         self.events = deque(maxlen=300)
@@ -549,6 +565,11 @@ class RuleEngine:
                 self.on_trigger(user_id, "lost_connection", context)
 
     # ------------------------------------------------------------------- admin
+    def update_profile(self, user_id, fields):
+        """Merge synced baseline fields into one profile (POST /profile)."""
+        with self._lock:
+            self.profiles[user_id].update(fields)
+
     def reset_cooldown(self, user_id):
         state = self.users[user_id]
         state.cooldown_until.clear()

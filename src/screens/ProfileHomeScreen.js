@@ -10,6 +10,7 @@ import {
   DAYS, LIVING_SITUATION_OPTIONS, MOBILITY_OPTIONS, SHARE_OPTIONS, labelFor,
 } from '../model/profile';
 import { formatTime, ageFromDob } from '../utils/datetime';
+import { syncProfileToBackend } from '../api/sync';
 import { colors, type } from '../theme';
 
 function Row({ label, value }) {
@@ -23,9 +24,23 @@ function Row({ label, value }) {
 
 export default function ProfileHomeScreen({ profile, onEdit, onReset }) {
   const [showJson, setShowJson] = useState(false);
+  const [sync, setSync] = useState({ state: 'idle', message: null });
   const d = profile.demographics;
   const primary = profile.emergencyContacts.find((c) => c.isPrimary);
   const routineCount = DAYS.reduce((n, day) => n + (profile.weeklyRoutine[day]?.length || 0), 0);
+
+  const sendToBackend = async () => {
+    setSync({ state: 'sending', message: null });
+    try {
+      const body = await syncProfileToBackend(profile);
+      setSync({
+        state: 'done',
+        message: `Live watch card updated for ${body.profile?.name || d.name}.`,
+      });
+    } catch (e) {
+      setSync({ state: 'error', message: String(e.message || e) });
+    }
+  };
 
   const confirmReset = () => {
     Alert.alert('Start over?', 'This deletes the saved baseline profile.', [
@@ -45,11 +60,24 @@ export default function ProfileHomeScreen({ profile, onEdit, onReset }) {
         </InfoBanner>
 
         <Card>
-          <Text style={[type.label, { marginBottom: 4 }]}>Wearable</Text>
-          <Text style={type.small}>
-            Not paired yet — pairing arrives in the next build. The profile already
-            reserves a deviceId for it.
+          <Text style={[type.label, { marginBottom: 4 }]}>Watch service</Text>
+          <Text style={[type.small, { marginBottom: 12 }]}>
+            Send this baseline to the anomaly-detection backend: the live watch card
+            takes on {d.name}&apos;s sleep window, weekly routine and emergency contact.
           </Text>
+          <Button
+            title={sync.state === 'sending' ? 'Sending…' : 'Send to watch service'}
+            variant="secondary"
+            disabled={sync.state === 'sending'}
+            onPress={sendToBackend}
+          />
+          {sync.state === 'done' && <InfoBanner tone="success">✓ {sync.message}</InfoBanner>}
+          {sync.state === 'error' && (
+            <InfoBanner tone="danger">
+              {sync.message} — check BACKEND_URL in src/config.js and that the backend
+              is running.
+            </InfoBanner>
+          )}
         </Card>
 
         <Card>

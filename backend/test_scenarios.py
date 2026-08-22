@@ -262,6 +262,113 @@ def test_fitbit_status_endpoint_shape():
     assert isinstance(body["configured"], bool)
 
 
+# ------------------------------------------------------------- profile overlay
+def test_profiles_local_overlay_applied(tmp_path):
+    # A synced UserBaselineProfile is persisted to profiles.local.json and
+    # must survive a restart: RuleEngine applies it over profiles.json.
+    import json
+    import shutil
+    from pathlib import Path
+    base = Path(main.__file__).resolve().parent
+    shutil.copy(base / "profiles.json", tmp_path / "profiles.json")
+    (tmp_path / "profiles.local.json").write_text(json.dumps(
+        {"usr_live": {"name": "Edna Krabappel", "age": 78},
+         "usr_ghost": {"name": "Nobody"}}))
+    eng = engine_mod.RuleEngine(
+        profiles_path=tmp_path / "profiles.json",
+        overlay_path=tmp_path / "profiles.local.json")
+    assert eng.profiles["usr_live"]["name"] == "Edna Krabappel"
+    assert eng.profiles["usr_live"]["age"] == 78
+    # Fields the overlay doesn't set survive, and unknown users (no data
+    # source to feed them) are not invented.
+    assert eng.profiles["usr_live"]["source"] == "fitbit"
+    assert "usr_ghost" not in eng.profiles
+
+
+def test_missing_overlay_is_harmless(tmp_path):
+    import shutil
+    from pathlib import Path
+    base = Path(main.__file__).resolve().parent
+    shutil.copy(base / "profiles.json", tmp_path / "profiles.json")
+    eng = engine_mod.RuleEngine(
+        profiles_path=tmp_path / "profiles.json",
+        overlay_path=tmp_path / "profiles.local.json")
+    assert eng.profiles["usr_live"]["name"]
+
+
+# ------------------------------------------------------- module 1 profile sync
+def _baseline(consent=True):
+    days = ("monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday")
+    routine = {day: [] for day in days}
+    routine["monday"] = [{"activity": "Morning walk",
+                          "expectedTime": "10:00", "expectedDuration": 45}]
+    return {
+        "schemaVersion": 1,
+        "demographics": {"name": "Edna Krabappel", "sex": "female",
+                         "dob": "1948-03-15", "livingSituation": "lives_alone"},
+        "emergencyContacts": [
+            {"name": "Sarah", "relationship": "Daughter",
+             "phone": "+61400000001", "isPrimary": True}],
+        "sleep": {"typicalWake": "06:45", "typicalSleep": "21:30",
+                  "napPattern": None},
+        "weeklyRoutine": routine,
+        "hobbies": [], "mobilityLevel": "walking_aid",
+        "lifestyle": {"diet": None,
+                      "smoking": {"status": False, "frequency": None},
+                      "alcohol": {"status": False, "frequency": None}},
+        "healthContext": [], "medicationCount": None,
+        "consent": {"monitoringConsent": consent, "sharedWith": ["nextOfKin"]},
+        "deviceId": None, "completedAt": "2026-08-22T10:00:00.000Z",
+    }
+
+
+@pytest.fixture
+def live_card_restored(monkeypatch, tmp_path):
+    """Overlay writes go to tmp, and the live card is restored afterwards."""
+    import json
+    monkeypatch.setattr(engine_mod, "LOCAL_PROFILES_PATH",
+                        tmp_path / "profiles.local.json")
+    before = json.loads(json.dumps(engine.profiles["usr_live"]))
+    yield tmp_path / "profiles.local.json"
+    engine.profiles["usr_live"] = before
+
+
+def test_profile_sync_updates_live_card(live_card_restored):
+    import json
+    resting_before = engine.profiles["usr_live"]["resting_hr_bpm"]
+    r = client.post("/profile", json=_baseline())
+    assert r.status_code == 200 and r.json()["user_id"] == "usr_live"
+
+    live = engine.profiles["usr_live"]
+    assert live["name"] == "Edna Krabappel"
+    assert live["sleep_window"] == {"start": "21:30", "end": "06:45"}
+    assert live["kin_name"] == "Sarah"
+    assert live["routine"][0]["activity"] == "Morning walk"
+    # What onboarding can't know is preserved: data source, calibrated
+    # resting HR, and the cloud-lag threshold overrides.
+    assert live["source"] == "fitbit"
+    assert live["resting_hr_bpm"] == resting_before
+    assert live["missing_data_min"] == 15
+    # Persisted to the gitignored overlay so a restart keeps the person.
+    overlay = json.loads(live_card_restored.read_text())
+    assert overlay["usr_live"]["name"] == "Edna Krabappel"
+    assert events("profile_synced", "usr_live")
+
+
+def test_profile_sync_refuses_unconsented(live_card_restored):
+    r = client.post("/profile", json=_baseline(consent=False))
+    assert r.status_code == 403
+    assert engine.profiles["usr_live"]["name"] != "Edna Krabappel"
+    assert not live_card_restored.exists()
+
+
+def test_profile_sync_rejects_malformed(live_card_restored):
+    bad = _baseline()
+    bad["emergencyContacts"] = []
+    assert client.post("/profile", json=bad).status_code == 422
+
+
 # -------------------------------------------------------------------- security
 def _reading():
     return {"user_id": "usr_demo_a", "timestamp": datetime.now().isoformat(),
@@ -277,6 +384,7 @@ def test_api_secret_enforced_when_configured(monkeypatch):
     assert client.post("/simulate?scenario=acute").status_code == 401
     assert client.post("/demo/reset-cooldown/usr_demo_a").status_code == 401
     assert client.get("/state").status_code == 401
+    assert client.post("/profile", json=_baseline()).status_code == 401
     bad = {"X-Api-Key": "wrong"}
     assert client.post("/ingest", json=_reading(), headers=bad).status_code == 401
 
