@@ -469,6 +469,9 @@ def escalation_trigger(user_id: str = Query("usr_live"),
         raise HTTPException(404, "unknown user_id %r" % user_id)
     if provider not in (None, "dryrun", "elevenlabs"):
         raise HTTPException(400, "provider must be dryrun or elevenlabs")
+    if provider == "elevenlabs" and profile.get("source") != "fitbit":
+        raise HTTPException(
+            400, "live calls are only for the live wearer, not demo cards")
     if not escalation_bridge.escalation_url():
         raise HTTPException(503, "ESCALATION_URL not configured")
     now = datetime.now()

@@ -115,13 +115,13 @@
   <section>
     <h2>3 · Instant agent call (skips detection)</h2>
     <div class="instant">
-      <select id="instant-user"></select>
+      <select id="instant-user" onchange="syncLiveButton()"></select>
       <button class="go" onclick="instantCall()">&#9742; Call now (scripted)</button>
-      <button class="go live" onclick="liveCall()">&#128308; LIVE CALL — real phones</button>
+      <button class="go live" id="live-btn" onclick="liveCall()" hidden>&#128308; LIVE CALL — real phones</button>
     </div>
-    <div class="hint">Scripted plays the armed outcome instantly. LIVE dials the
-      real wearer/kin/support phones via the voice agent — one press, up to
-      three phones, ~30&ndash;90&nbsp;s.</div>
+    <div class="hint">Scripted plays the armed outcome instantly. LIVE (only for
+      the live wearer) dials the real phones via the voice agent — wearer, then
+      kin if there's no answer. ~30&ndash;90&nbsp;s.</div>
   </section>
 </div>
 
@@ -141,9 +141,8 @@ const HDRS = KEY ? {"X-Api-Key": KEY} : {};
 const OUTCOMES = [
   ["kin",        "Kin says YES → 🚑 simulated"],
   ["resolved",   "User answers → resolved"],
-  ["support",    "Kin exhausted → support decides"],
   ["unclear",    "User unclear → escalate"],
-  ["unresolved", "Nobody answers → unresolved"],
+  ["unresolved", "Nobody answers → humans take over"],
   ["default",    "Service default"],
 ];
 const SCENARIOS = [["acute","Acute"],["immobility","Immobility"],
@@ -194,10 +193,15 @@ async function instantCall() {
     toast(`Agents dialing (${r.alert_id})`);
   } catch (e) { toast("Trigger failed: " + e.message); }
 }
+let liveUid = null;
+function syncLiveButton() {
+  const uid = document.getElementById("instant-user").value;
+  document.getElementById("live-btn").hidden = uid !== liveUid;
+}
 async function liveCall() {
   const uid = document.getElementById("instant-user").value;
   const who = document.querySelector(`#instant-user option[value="${uid}"]`).textContent;
-  if (!confirm(`Place REAL phone calls for ${who}? Up to three phones will ring.`)) return;
+  if (!confirm(`Place REAL phone calls for ${who}? Wearer rings first, kin only if no answer.`)) return;
   try {
     const r = await api(`/escalation/trigger?user_id=${uid}&provider=elevenlabs`,
                         {method: "POST"});
@@ -220,12 +224,14 @@ function renderUsers(users) {
           `<button class="small" onclick="fire('${uid}','${s}')">${label}</button>`).join("")}</div></td>
       </tr>`;
     }).join("");
+  liveUid = userIds.find(uid => users[uid].source === "fitbit") || null;
   const sel = document.getElementById("instant-user");
   if (sel.options.length !== userIds.length) {
     sel.innerHTML = userIds.map(uid =>
       `<option value="${uid}">${users[uid].name}${users[uid].source === "fitbit" ? " (live watch)" : ""}</option>`).join("");
     sel.value = userIds.includes("usr_live") ? "usr_live" : userIds[0];
   }
+  syncLiveButton();
 }
 
 function renderFeed(data) {

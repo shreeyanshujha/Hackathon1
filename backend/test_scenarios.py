@@ -273,8 +273,8 @@ def test_trigger_hands_off_to_escalation_service(monkeypatch):
     assert payload["detail"]["hr_now"] is not None
     assert payload["kin"][0]["phone"] == \
         engine.profiles["usr_demo_a"]["kin_phone"]
-    assert payload["support_contact"]["phone"] == \
-        engine.profiles["usr_demo_a"]["responder_phone"]
+    # No support contact: anything past kin is a human's job.
+    assert "support_contact" not in payload
 
 
 def test_arm_escalation_scenario_validates():
@@ -321,9 +321,12 @@ def test_console_instant_trigger(monkeypatch):
     assert seen["provider"] is None            # default stays the service's
     assert "alr-instant" in main.recent_escalations
     assert events("escalation_handoff", "usr_demo_b")
-    # The console's LIVE CALL button forces real phones for one alert.
-    client.post("/escalation/trigger?user_id=usr_demo_b&provider=elevenlabs")
-    assert seen["provider"] == "elevenlabs"
+    # The console's LIVE CALL button forces real phones — but only for the
+    # live wearer, never a demo card.
+    r = client.post("/escalation/trigger?user_id=usr_demo_b&provider=elevenlabs")
+    assert r.status_code == 400
+    client.post("/escalation/trigger?user_id=usr_live&provider=elevenlabs")
+    assert seen["provider"] == "elevenlabs" and seen["user_id"] == "usr_live"
     assert client.post("/escalation/trigger?provider=bogus").status_code == 400
     # Unknown user and unconfigured service both fail loudly, not silently.
     assert client.post("/escalation/trigger?user_id=usr_nope").status_code == 404

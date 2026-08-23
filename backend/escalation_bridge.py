@@ -46,8 +46,8 @@ def build_alert(user_id, profile, scenario, context):
         },
         "tier": _TIER.get(context.get("urgency"), 1),
         "kin": [{"name": profile["kin_name"], "phone": profile["kin_phone"]}],
-        "support_contact": {"phone": profile["responder_phone"],
-                            "name": "the on-call responder"},
+        # No support_contact: anything past kin is a human's job, so the
+        # ladder ends after the kin rung (service-side skip when unset).
     }
 
 
