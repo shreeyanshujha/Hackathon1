@@ -57,6 +57,7 @@
     border-radius: 8px; padding: 8px 10px; font-size: 14px;
   }
   button.go { background: #143c5b; border-color: var(--accent); font-weight: 700; font-size: 15px; }
+  button.go.live { background: #3a1420; border-color: var(--alert); color: #fca5a5; }
   button.danger { background: #3a1420; border-color: #7a2b3a; }
   /* ladder feed */
   .run { border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
@@ -115,8 +116,12 @@
     <h2>3 · Instant agent call (skips detection)</h2>
     <div class="instant">
       <select id="instant-user"></select>
-      <button class="go" onclick="instantCall()">&#9742; Call now</button>
+      <button class="go" onclick="instantCall()">&#9742; Call now (scripted)</button>
+      <button class="go live" onclick="liveCall()">&#128308; LIVE CALL — real phones</button>
     </div>
+    <div class="hint">Scripted plays the armed outcome instantly. LIVE dials the
+      real wearer/kin/support phones via the voice agent — one press, up to
+      three phones, ~30&ndash;90&nbsp;s.</div>
   </section>
 </div>
 
@@ -188,6 +193,16 @@ async function instantCall() {
     const r = await api(`/escalation/trigger?user_id=${uid}`, {method: "POST"});
     toast(`Agents dialing (${r.alert_id})`);
   } catch (e) { toast("Trigger failed: " + e.message); }
+}
+async function liveCall() {
+  const uid = document.getElementById("instant-user").value;
+  const who = document.querySelector(`#instant-user option[value="${uid}"]`).textContent;
+  if (!confirm(`Place REAL phone calls for ${who}? Up to three phones will ring.`)) return;
+  try {
+    const r = await api(`/escalation/trigger?user_id=${uid}&provider=elevenlabs`,
+                        {method: "POST"});
+    toast(`LIVE — real phones dialing (${r.alert_id})`);
+  } catch (e) { toast("Live call failed: " + e.message); }
 }
 
 function renderUsers(users) {

@@ -456,12 +456,19 @@ def arm_escalation_scenario(scenario: str = Query(None)):
 
 @app.post("/escalation/trigger", dependencies=protected)
 def escalation_trigger(user_id: str = Query("usr_live"),
-                       scenario: str = Query(None)):
+                       scenario: str = Query(None),
+                       provider: str = Query(None)):
     """Instant agent call: hand a synthetic acute event straight to the
-    ladder, skipping the detection window. For the 30-seconds-left demo."""
+    ladder, skipping the detection window. For the 30-seconds-left demo.
+
+    provider=elevenlabs forces REAL phone calls for this one alert while the
+    service's default stays dryrun — the console's LIVE CALL button.
+    """
     profile = engine.profiles.get(user_id)
     if profile is None:
         raise HTTPException(404, "unknown user_id %r" % user_id)
+    if provider not in (None, "dryrun", "elevenlabs"):
+        raise HTTPException(400, "provider must be dryrun or elevenlabs")
     if not escalation_bridge.escalation_url():
         raise HTTPException(503, "ESCALATION_URL not configured")
     now = datetime.now()
@@ -477,14 +484,16 @@ def escalation_trigger(user_id: str = Query("usr_live"),
     ladder = scenario or demo_state["escalation_scenario"]
     try:
         ack = escalation_bridge.hand_off(user_id, profile, "acute", context,
-                                         ladder_scenario=ladder)
+                                         ladder_scenario=ladder,
+                                         provider=provider)
     except Exception as exc:
         raise HTTPException(502, "escalation service unreachable: %s" % exc)
     recent_escalations.appendleft(ack["alert_id"])
     engine.log_event(
         user_id, "escalation_handoff",
-        "Console-triggered agent call for %s (alert %s)"
-        % (profile["name"], ack["alert_id"]), severity="alert")
+        "Console-triggered %sagent call for %s (alert %s)"
+        % ("LIVE " if provider == "elevenlabs" else "",
+           profile["name"], ack["alert_id"]), severity="alert")
     return {"ok": True, **ack}
 
 

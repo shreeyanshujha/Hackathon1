@@ -305,9 +305,10 @@ def test_armed_scenario_rides_on_handoff(monkeypatch):
 def test_console_instant_trigger(monkeypatch):
     seen = {}
 
-    def fake_hand_off(user_id, profile, scenario, context, ladder_scenario=None):
+    def fake_hand_off(user_id, profile, scenario, context, ladder_scenario=None,
+                      provider=None):
         seen.update(user_id=user_id, scenario=scenario, ladder=ladder_scenario,
-                    context=context)
+                    context=context, provider=provider)
         return {"alert_id": "alr-instant", "state": "detected",
                 "status_url": "/alerts/alr-instant"}
 
@@ -317,8 +318,13 @@ def test_console_instant_trigger(monkeypatch):
     assert r.status_code == 200 and r.json()["alert_id"] == "alr-instant"
     assert seen["user_id"] == "usr_demo_b" and seen["ladder"] == "resolved"
     assert seen["context"]["urgency"] == "high"
+    assert seen["provider"] is None            # default stays the service's
     assert "alr-instant" in main.recent_escalations
     assert events("escalation_handoff", "usr_demo_b")
+    # The console's LIVE CALL button forces real phones for one alert.
+    client.post("/escalation/trigger?user_id=usr_demo_b&provider=elevenlabs")
+    assert seen["provider"] == "elevenlabs"
+    assert client.post("/escalation/trigger?provider=bogus").status_code == 400
     # Unknown user and unconfigured service both fail loudly, not silently.
     assert client.post("/escalation/trigger?user_id=usr_nope").status_code == 404
 

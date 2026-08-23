@@ -51,7 +51,8 @@ def build_alert(user_id, profile, scenario, context):
     }
 
 
-def hand_off(user_id, profile, scenario, context, ladder_scenario=None):
+def hand_off(user_id, profile, scenario, context, ladder_scenario=None,
+             provider=None):
     """POST the alert; returns the service's ack {alert_id, state, status_url}.
 
     The ladder runs in the service's background — this returns immediately so
@@ -65,7 +66,13 @@ def hand_off(user_id, profile, scenario, context, ladder_scenario=None):
     """
     payload = build_alert(user_id, profile, scenario, context)
     url = "%s/alerts" % escalation_url()
-    params = {"scenario": ladder_scenario} if ladder_scenario else None
-    resp = httpx.post(url, json=payload, params=params, timeout=5.0)
+    params = {}
+    if ladder_scenario:
+        params["scenario"] = ladder_scenario
+    if provider:
+        # One-alert override of the service's CALL_PROVIDER: the demo runs
+        # scripted dry runs all day and fires a single real call on demand.
+        params["provider"] = provider
+    resp = httpx.post(url, json=payload, params=params or None, timeout=5.0)
     resp.raise_for_status()
     return resp.json()
