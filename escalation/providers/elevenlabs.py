@@ -53,6 +53,14 @@ log = logging.getLogger("escalation.elevenlabs")
 # does not accumulate them.
 PENDING_TTL_SECONDS = 900.0
 
+# await_result checks the webhook event and polls the conversation API on
+# this cadence. A live conversation extends the wait by up to TALK_GRACE (the
+# next rung must never ring while this call is still talking); a finished one
+# gets PROCESSING_GRACE for ElevenLabs' post-call analysis to land.
+POLL_INTERVAL_SECONDS = 2.5
+TALK_GRACE_SECONDS = 240.0
+PROCESSING_GRACE_SECONDS = 90.0
+
 
 @dataclass
 class _Pending:
@@ -173,22 +181,83 @@ class ElevenLabsTwilioProvider:
         )
 
     def await_result(self, handle: CallHandle, timeout_s: float) -> Optional[CallResult]:
+        """Wait for the call's outcome — webhook first, API poll as the truth.
+
+        The tier timeout is the *answer* bar: how long an unanswered phone may
+        ring. Once the conversation is live it is never abandoned mid-talk
+        (the next rung must not ring while this one is still speaking), and a
+        finished conversation's outcome is pulled straight from the ElevenLabs
+        API when the webhook is late, misconfigured, or unreachable.
+        """
         with _PENDING_LOCK:
             pending = _PENDING.get(handle.call_id)
         if pending is None:
             log.warning("no pending record for %s; treating as no answer", handle.call_id)
             return CallResult(answered=False, error="no pending record")
 
-        if pending.event.wait(timeout_s):
-            with _PENDING_LOCK:
-                _PENDING.pop(handle.call_id, None)
-            return pending.result
+        start = time.monotonic()
+        answer_deadline = start + timeout_s
+        talk_deadline = start + timeout_s + TALK_GRACE_SECONDS
+        processing_deadline: Optional[float] = None
 
-        # Deadline hit. Keep the entry so a late webhook can be logged and
-        # ignored rather than resolving a call the ladder has moved past.
-        pending.abandoned = True
-        log.info("%s did not report an outcome within %.0fs", handle.ctx.to_name, timeout_s)
-        return None
+        while True:
+            remaining = answer_deadline - time.monotonic()
+            wait_s = POLL_INTERVAL_SECONDS if remaining <= 0 else \
+                min(POLL_INTERVAL_SECONDS, max(remaining, 0.05))
+            if pending.event.wait(wait_s):
+                with _PENDING_LOCK:
+                    _PENDING.pop(handle.call_id, None)
+                return pending.result
+
+            status, result = self._poll_conversation(handle.call_id)
+            now = time.monotonic()
+
+            if result is not None:
+                log.info("outcome for %s came from the API poll (status %s)",
+                         handle.ctx.to_name, status)
+                with _PENDING_LOCK:
+                    _PENDING.pop(handle.call_id, None)
+                return result
+
+            if status == "in-progress" and now < talk_deadline:
+                continue  # they're talking — the ladder holds
+            if status == "processing":
+                if processing_deadline is None:
+                    processing_deadline = now + PROCESSING_GRACE_SECONDS
+                if now < processing_deadline:
+                    continue  # call over, analysis still cooking
+            if status in ("initiated", None) and now < answer_deadline:
+                continue  # still ringing (or the API is unreachable)
+
+            # Keep the entry so a late webhook can be logged and ignored
+            # rather than resolving a call the ladder has moved past.
+            pending.abandoned = True
+            if status == "initiated":
+                log.info("%s has not answered within %.0fs; moving on",
+                         handle.ctx.to_name, timeout_s)
+                return CallResult(answered=False,
+                                  error="not answered within %ds" % timeout_s)
+            log.info("%s did not report an outcome within %.0fs",
+                     handle.ctx.to_name, now - start)
+            return None
+
+    def _poll_conversation(self, conversation_id: str):
+        """(status, result). Result is set once the conversation is over.
+
+        Any API failure — no permission, old SDK, network — degrades to
+        (None, None), which leaves the original webhook-only behaviour.
+        """
+        try:
+            convo = self.client.conversational_ai.conversations.get(
+                conversation_id=conversation_id)
+        except Exception as exc:
+            log.debug("conversation poll failed for %s: %s", conversation_id, exc)
+            return None, None
+        status = getattr(convo, "status", None)
+        status = getattr(status, "value", status)
+        if status in ("done", "failed"):
+            return status, _result_from_conversation(convo, status)
+        return status, None
 
 
 def _has_dedicated_agent(ctx: CallContext) -> bool:
@@ -234,10 +303,59 @@ def _flatten_transcript(turns: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _turn_field(turn: Any, key: str) -> Any:
+    return turn.get(key) if isinstance(turn, dict) else getattr(turn, key, None)
+
+
+def _result_from_conversation(convo: Any, status: str) -> CallResult:
+    """Build the same CallResult the webhook would, from a polled conversation."""
+    if status == "failed":
+        return CallResult(answered=False, error="provider reported the call failed")
+
+    lines = []
+    for turn in getattr(convo, "transcript", None) or []:
+        message = (_turn_field(turn, "message") or "").strip()
+        if message:
+            lines.append(f"{_turn_field(turn, 'role') or '?'}: {message}")
+    transcript = "\n".join(lines)
+
+    analysis = getattr(convo, "analysis", None)
+    collection = getattr(analysis, "data_collection_results", None) or {}
+
+    # Field names come from hand-typed dashboard config; "outcome " with a
+    # trailing space must still count as "outcome".
+    if isinstance(collection, dict):
+        collection = {str(k).strip(): v for k, v in collection.items()}
+
+    def value_of(key: str) -> Any:
+        entry = collection.get(key) if isinstance(collection, dict) else None
+        if isinstance(entry, dict):
+            return entry.get("value")
+        return getattr(entry, "value", entry) if entry is not None else None
+
+    outcome = value_of("outcome")
+    confidence = value_of("confidence")
+    grounded = value_of("answered_grounding_question")
+    summary = value_of("summary") or getattr(analysis, "transcript_summary", "") or ""
+
+    return CallResult(
+        answered=bool(transcript.strip()),
+        transcript=transcript or summary,
+        outcome=str(outcome) if outcome else None,
+        confidence=float(confidence) if isinstance(confidence, (int, float)) else 0.9,
+        grounded=bool(grounded) if grounded is not None else False,
+    )
+
+
 def _collected(results: Any, key: str) -> Any:
-    """Data collection entries are usually {"value": ..., "rationale": ...}."""
+    """Data collection entries are usually {"value": ..., "rationale": ...}.
+
+    Keys are stripped: the dashboard config is hand-typed, and "outcome "
+    with a trailing space must still count as "outcome".
+    """
     if not isinstance(results, dict):
         return None
+    results = {str(k).strip(): v for k, v in results.items()}
     entry = results.get(key)
     if isinstance(entry, dict):
         return entry.get("value")

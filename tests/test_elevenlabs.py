@@ -290,3 +290,77 @@ def test_orphaned_webhook_results_do_not_accumulate_forever(configured):
     el.ElevenLabsTwilioProvider(client=client).place_call(kin_ctx())
 
     assert "conv_orphan" not in el._ORPHANS
+
+
+# --- API polling: sequencing and webhook-less outcomes --------------------
+
+
+class FakeConversations:
+    """Scripted status sequence; the last snapshot repeats forever."""
+
+    def __init__(self, snapshots):
+        self.snapshots = list(snapshots)
+
+    def get(self, conversation_id):
+        if len(self.snapshots) > 1:
+            return self.snapshots.pop(0)
+        return self.snapshots[0]
+
+
+def _snap(status, transcript=(), collection=None, summary=""):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        status=status,
+        transcript=list(transcript),
+        analysis=SimpleNamespace(
+            data_collection_results=collection or {},
+            transcript_summary=summary,
+        ),
+    )
+
+
+def test_ladder_holds_while_the_call_is_in_progress(configured, monkeypatch):
+    # The tier timeout may lapse mid-conversation; the next rung must NOT
+    # ring until this call actually ends, and the outcome comes from the API
+    # even though no webhook ever arrives.
+    monkeypatch.setattr(el, "POLL_INTERVAL_SECONDS", 0.02)
+    client = FakeClient()
+    client.conversational_ai.conversations = FakeConversations([
+        _snap("in-progress"),
+        _snap("in-progress"),
+        _snap("done",
+              transcript=[{"role": "user", "message": "Yes, send an ambulance."}],
+              collection={"outcome": {"value": "ambulance_requested"},
+                          "confidence": {"value": 0.95}}),
+    ])
+    provider = el.ElevenLabsTwilioProvider(client=client)
+    handle = provider.place_call(kin_ctx())
+
+    result = provider.await_result(handle, timeout_s=0.01)  # lapses instantly
+    assert result is not None and result.answered
+    assert result.outcome == "ambulance_requested"
+    assert "ambulance" in result.transcript
+
+
+def test_unanswered_ring_past_the_deadline_is_a_no_answer(configured, monkeypatch):
+    monkeypatch.setattr(el, "POLL_INTERVAL_SECONDS", 0.02)
+    client = FakeClient()
+    client.conversational_ai.conversations = FakeConversations([_snap("initiated")])
+    provider = el.ElevenLabsTwilioProvider(client=client)
+    handle = provider.place_call(kin_ctx())
+
+    result = provider.await_result(handle, timeout_s=0.05)
+    assert result is not None and not result.answered
+    assert "not answered" in (result.error or "")
+
+
+def test_failed_conversation_is_a_no_answer(configured, monkeypatch):
+    monkeypatch.setattr(el, "POLL_INTERVAL_SECONDS", 0.02)
+    client = FakeClient()
+    client.conversational_ai.conversations = FakeConversations([_snap("failed")])
+    provider = el.ElevenLabsTwilioProvider(client=client)
+    handle = provider.place_call(kin_ctx())
+
+    result = provider.await_result(handle, timeout_s=0.5)
+    assert result is not None and not result.answered

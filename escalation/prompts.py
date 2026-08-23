@@ -34,6 +34,11 @@ outcome unclear.
 
 If there's no answer, record outcome no_answer.
 
+If the call reaches voicemail or an answering-machine greeting, or you get
+no meaningful reply after two attempts, do not keep talking: say a brief
+goodbye, end the call, and record outcome no_answer. Never leave health
+details in a voicemail message.
+
 If you cannot reach a clear outcome within the time limit, record outcome
 timeout.
 
@@ -54,7 +59,10 @@ Ask directly: should an ambulance be sent?
 
 You are relaying information, not deciding. If they say yes, record
 outcome ambulance_requested. If they say no, record outcome declined.
-If they don't answer, record outcome no_answer. If they ask something
+If they don't answer, record outcome no_answer.
+If the call reaches voicemail or nobody meaningful answers, say a
+brief goodbye, end the call, and record outcome no_answer.
+If they ask something
 you don't have the answer to, such as exact vitals, say you don't have
 that detail rather than guessing.
 
@@ -77,6 +85,9 @@ Ask directly: should an ambulance be sent?
 You are relaying information, not deciding. If they say yes, record
 outcome ambulance_requested. If they say no, record outcome declined.
 If they don't answer, record outcome no_answer.
+If the call reaches voicemail or nobody meaningful answers, say a
+brief goodbye, end the call, and record outcome no_answer.
+
 
 Never place an emergency call yourself. Only record the decision.\
 """.replace("{product}", PRODUCT_NAME)
