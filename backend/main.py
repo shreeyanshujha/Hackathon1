@@ -18,8 +18,11 @@ import math
 import random
 import secrets as pysecrets
 import time
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import httpx
 
 from dotenv import load_dotenv
 from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Query,
@@ -29,6 +32,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
 from pydantic import BaseModel
 
 import engine as engine_mod
+import escalation_bridge
 import fitbit as fitbit_mod
 import profile_bridge as bridge
 import telephony as tel
@@ -47,8 +51,34 @@ telephony = tel.Telephony(log_event=lambda uid, t, m, sev="info":
                           engine.log_event(uid, t, m, sev))
 
 
+# Presenter-console demo state: the armed ladder outcome rides on the next
+# handoff (forced dry-run script), and recent alert ids feed the live pane.
+demo_state = {"escalation_scenario": None}
+recent_escalations = deque(maxlen=8)
+LADDER_SCENARIOS = ("kin", "support", "resolved", "unclear", "unresolved")
+
+
 def on_trigger(user_id, scenario, context):
-    telephony.place_call(user_id, engine.profiles[user_id], scenario, context)
+    profile = engine.profiles[user_id]
+    if escalation_bridge.escalation_url():
+        try:
+            ack = escalation_bridge.hand_off(
+                user_id, profile, scenario, context,
+                ladder_scenario=demo_state["escalation_scenario"])
+            recent_escalations.appendleft(ack["alert_id"])
+            engine.log_event(
+                user_id, "escalation_handoff",
+                "Handed to escalation agents — Agent A calling %s, then kin "
+                "%s (alert %s)" % (profile["name"], profile["kin_name"],
+                                   ack["alert_id"]),
+                severity="alert")
+            return
+        except Exception as exc:
+            engine.log_event(
+                user_id, "escalation_unreachable",
+                "Escalation service unreachable (%s) — falling back to the "
+                "direct kin call" % exc, severity="alert")
+    telephony.place_call(user_id, profile, scenario, context)
 
 
 engine.on_trigger = on_trigger
@@ -164,7 +194,7 @@ async def lifespan(_app):
             await task
 
 
-app = FastAPI(title="Telecare Anomaly Detection", lifespan=lifespan)
+app = FastAPI(title="Pulse Point Anomaly Detection", lifespan=lifespan)
 STATIC = Path(__file__).resolve().parent / "static"
 
 
@@ -400,6 +430,99 @@ def reset_cooldown(user_id: str):
         raise HTTPException(404, "unknown user_id %r" % user_id)
     engine.reset_cooldown(user_id)
     return {"ok": True, "user_id": user_id}
+
+
+# ---------------------------------------------------------- presenter console
+# /console drives a forced demo: arm how the agent ladder ends, fire detection
+# scenarios, or skip detection entirely. The backend proxies the escalation
+# service so the page needs no CORS and no second origin.
+@app.get("/console")
+def console():
+    return FileResponse(STATIC / "console.html")
+
+
+@app.post("/demo/escalation-scenario", dependencies=protected)
+def arm_escalation_scenario(scenario: str = Query(None)):
+    """Arm the dry-run script the NEXT ladder run plays. Empty/default clears."""
+    if scenario in (None, "", "default"):
+        demo_state["escalation_scenario"] = None
+    elif scenario in LADDER_SCENARIOS:
+        demo_state["escalation_scenario"] = scenario
+    else:
+        raise HTTPException(400, "scenario must be one of %s"
+                            % (LADDER_SCENARIOS,))
+    return {"ok": True, "armed": demo_state["escalation_scenario"]}
+
+
+@app.post("/escalation/trigger", dependencies=protected)
+def escalation_trigger(user_id: str = Query("usr_live"),
+                       scenario: str = Query(None)):
+    """Instant agent call: hand a synthetic acute event straight to the
+    ladder, skipping the detection window. For the 30-seconds-left demo."""
+    profile = engine.profiles.get(user_id)
+    if profile is None:
+        raise HTTPException(404, "unknown user_id %r" % user_id)
+    if not escalation_bridge.escalation_url():
+        raise HTTPException(503, "ESCALATION_URL not configured")
+    now = datetime.now()
+    state = engine.users[user_id]
+    context = {
+        "scenario": "acute", "urgency": "high",
+        "hr_now": state.last_hr or profile["resting_hr_bpm"] + 74,
+        "hr_baseline": profile["resting_hr_bpm"],
+        "duration_sec": 12 * 60,
+        "schedule_context": engine_mod.get_schedule_context(profile, now),
+        "timestamp": now.isoformat(timespec="seconds"),
+    }
+    ladder = scenario or demo_state["escalation_scenario"]
+    try:
+        ack = escalation_bridge.hand_off(user_id, profile, "acute", context,
+                                         ladder_scenario=ladder)
+    except Exception as exc:
+        raise HTTPException(502, "escalation service unreachable: %s" % exc)
+    recent_escalations.appendleft(ack["alert_id"])
+    engine.log_event(
+        user_id, "escalation_handoff",
+        "Console-triggered agent call for %s (alert %s)"
+        % (profile["name"], ack["alert_id"]), severity="alert")
+    return {"ok": True, **ack}
+
+
+@app.get("/escalation/recent", dependencies=protected)
+def escalation_recent():
+    """Armed outcome + the last few ladder runs, fetched from the service."""
+    out = {"armed": demo_state["escalation_scenario"], "service_ok": False,
+           "runs": []}
+    base = escalation_bridge.escalation_url()
+    if not base:
+        return out
+    try:
+        with httpx.Client(base_url=base, timeout=3.0) as client:
+            out["service_ok"] = client.get("/health").json().get("ok", False)
+            for alert_id in list(recent_escalations):
+                r = client.get("/alerts/%s" % alert_id)
+                if r.status_code != 200:
+                    continue
+                run = r.json()
+                out["runs"].append({
+                    "alert_id": run["alert_id"],
+                    "user": run["alert"]["user"]["name"],
+                    "state": run["state"],
+                    "ambulance_simulated": run["ambulance_simulated"],
+                    "transitions": [
+                        {"from": t["from_state"], "to": t["to_state"],
+                         "outcome": t.get("outcome"),
+                         "detail": t.get("detail", "")}
+                        for t in run["transitions"]],
+                    "calls": [
+                        {"role": c["role"], "to_name": c["to_name"],
+                         "dry_run": c["dry_run"],
+                         "outcome": (c.get("decision") or {}).get("outcome")}
+                        for c in run["calls"]],
+                })
+    except Exception:
+        pass  # service down mid-demo: the pane shows the red dot, not a 500
+    return out
 
 
 # --------------------------------------------------------------- Twilio hooks

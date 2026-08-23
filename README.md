@@ -230,7 +230,33 @@ your computer's LAN IP or tunnel URL — and, if used, `API_KEY` in
   overlay, so a backend restart keeps the person (delete the file to get
   the stock demo card back).
 
-### 2.6 Demo runbook (four scenarios, ~6 minutes)
+### 2.6 Module 2 → escalation agents: the ladder takes the calls
+
+The `escalation-ladder` branch is the team's agent system for everything
+*after* detection (Agent A calls the wearer, Agent B the kin list, then the
+support fallback — see its own README). It stays on its branch; run it from a
+worktree so `main` keeps this layout:
+
+```bash
+git worktree add escalation-service escalation-ladder   # once (gitignored)
+cd escalation-service
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+cp ../hackathon-app/secrets .env      # or .env.example for the zero-cred demo
+.venv/bin/python -m uvicorn escalation.api:app --port 8100
+```
+
+With `ESCALATION_URL=http://localhost:8100` in `backend/.env`, every fired
+TriggerEvent is translated (`backend/escalation_bridge.py`) into the ladder's
+`POST /alerts` contract and the agents own the calls — the dashboard logs the
+handoff, and http://localhost:8100 shows the ladder's live transition log.
+Urgency maps to tier (high→3, med→2, low→1); kin and responder numbers ride
+along from the profile. If the service is down or `ESCALATION_URL` unset, the
+legacy §2.2 Twilio DTMF call happens instead — a dead sidecar never swallows
+an alert. Real agent voice calls need `CALL_PROVIDER=elevenlabs` plus
+`TWILIO_FROM_NUMBER` and real numbers in `escalation-service/.env`; the
+default `dryrun` runs the whole ladder offline.
+
+### 2.7 Demo runbook (four scenarios, ~6 minutes)
 
 Projector shows the dashboard. Thresholds are demo-compressed in
 `backend/config.yaml` (acute 15 s, immobility 30 s, missing data 2 min,

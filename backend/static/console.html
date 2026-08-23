@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pulse Point Presenter Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0e1420; --card: #17202f; --edge: #263349;
+    --text: #e8eef7; --dim: #8fa1ba;
+    --ok: #34d399; --warn: #fbbf24; --alert: #f87171;
+    --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    padding: 18px 22px; min-height: 100vh;
+  }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  h1 { font-size: 21px; font-weight: 600; }
+  .svc { margin-left: auto; font-size: 13px; color: var(--dim); display: flex; gap: 14px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; background: var(--alert); }
+  .dot.up { background: var(--ok); }
+  .cols { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr); gap: 16px; }
+  @media (max-width: 780px) { .cols { grid-template-columns: 1fr; } }
+  section {
+    background: var(--card); border: 1px solid var(--edge);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+  }
+  section h2 { font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+  button {
+    background: #1d2a3f; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 9px 12px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:active { transform: translateY(1px); }
+  button.small { padding: 6px 9px; font-size: 12.5px; }
+  /* armed-outcome picker */
+  .outcomes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .outcomes button.armed { background: #0f2c3f; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .hint { color: var(--dim); font-size: 12.5px; margin-top: 8px; }
+  /* user grid */
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 6px 6px; text-align: left; font-size: 14px; }
+  th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .badge { font-size: 11.5px; font-weight: 700; letter-spacing: .8px; padding: 2px 9px; border-radius: 999px; }
+  .badge.NORMAL { background: #123c2e; color: var(--ok); }
+  .badge.EVALUATING { background: #443309; color: var(--warn); }
+  .badge.ALERT { background: #4a1414; color: var(--alert); }
+  .cool { color: var(--warn); font-size: 12px; }
+  .rowbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* instant call */
+  .instant { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  select {
+    background: #1d2a3f; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 8px 10px; font-size: 14px;
+  }
+  button.go { background: #143c5b; border-color: var(--accent); font-weight: 700; font-size: 15px; }
+  button.danger { background: #3a1420; border-color: #7a2b3a; }
+  /* ladder feed */
+  .run { border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .run .head { display: flex; align-items: baseline; gap: 10px; }
+  .run .who { font-weight: 600; font-size: 16px; }
+  .run .id { color: var(--dim); font-size: 11.5px; margin-left: auto; }
+  .state { font-size: 12px; font-weight: 700; letter-spacing: .8px; padding: 2px 9px; border-radius: 999px; background: #1d2a3f; color: var(--dim); }
+  .state.escalated { background: #4a1414; color: var(--alert); }
+  .state.resolved { background: #123c2e; color: var(--ok); }
+  .state.unresolved { background: #443309; color: var(--warn); }
+  .chain { font-size: 13px; color: var(--dim); margin: 7px 0 4px; line-height: 1.7; }
+  .chain b { color: var(--text); font-weight: 600; }
+  .chain .out { color: var(--accent); }
+  .calls { font-size: 13px; color: var(--dim); }
+  .amb {
+    margin-top: 7px; font-weight: 700; color: var(--alert);
+    border: 1px dashed var(--alert); border-radius: 8px; padding: 5px 10px;
+    display: inline-block; font-size: 13px; letter-spacing: .5px;
+  }
+  #feed .empty { color: var(--dim); font-size: 14px; }
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #0f2c3f; border: 1px solid var(--accent); color: var(--text);
+    padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0;
+    transition: opacity .25s; pointer-events: none; max-width: 90vw;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Presenter Console</h1>
+  <span style="color:var(--dim);font-size:13px">audience screen: <a href="/" target="_blank" style="color:var(--accent)">dashboard</a></span>
+  <div class="svc">
+    <span><span id="dot-backend" class="dot"></span>engine</span>
+    <span><span id="dot-esc" class="dot"></span>agents</span>
+  </div>
+</header>
+
+<div class="cols">
+<div>
+  <section>
+    <h2>1 · Arm how the agent ladder ends</h2>
+    <div class="outcomes" id="outcomes"></div>
+    <div class="hint">Forces the dry-run call script for every run until re-armed.
+      “Kin says YES” is the headline: Agent A gets no answer, kin asks for help
+      &rarr; <b>SIMULATED</b> ambulance record.</div>
+  </section>
+
+  <section>
+    <h2>2 · Fire a detection scenario <span style="float:right;font-weight:400;text-transform:none;letter-spacing:0">card goes red in ~15 s, then hands off</span></h2>
+    <table id="users"></table>
+    <div style="margin-top:10px"><button class="danger" onclick="resetAll()">Reset all cooldowns</button></div>
+  </section>
+
+  <section>
+    <h2>3 · Instant agent call (skips detection)</h2>
+    <div class="instant">
+      <select id="instant-user"></select>
+      <button class="go" onclick="instantCall()">&#9742; Call now</button>
+    </div>
+  </section>
+</div>
+
+<div>
+  <section>
+    <h2>Agent ladder — live <span id="armed-label" style="float:right;font-weight:400;text-transform:none;letter-spacing:0"></span></h2>
+    <div id="feed"><div class="empty">No runs yet — fire a scenario or an instant call.</div></div>
+  </section>
+</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const KEY = new URLSearchParams(location.search).get("key") || "";
+const HDRS = KEY ? {"X-Api-Key": KEY} : {};
+const OUTCOMES = [
+  ["kin",        "Kin says YES → 🚑 simulated"],
+  ["resolved",   "User answers → resolved"],
+  ["support",    "Kin exhausted → support decides"],
+  ["unclear",    "User unclear → escalate"],
+  ["unresolved", "Nobody answers → unresolved"],
+  ["default",    "Service default"],
+];
+const SCENARIOS = [["acute","Acute"],["immobility","Immobility"],
+                   ["wandering","Wandering"],["lost_connection","Lost conn"]];
+let armed = null, userIds = [];
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 2600);
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, {...opts, headers: {...HDRS, ...(opts.headers || {})}});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+  return r.json();
+}
+
+function renderOutcomes() {
+  document.getElementById("outcomes").innerHTML = OUTCOMES.map(([v, label]) =>
+    `<button class="${(armed || "default") === v ? "armed" : ""}"
+             onclick="arm('${v}')">${label}</button>`).join("");
+  document.getElementById("armed-label").textContent =
+    armed ? `armed: ${armed}` : "armed: default (no answers)";
+}
+async function arm(v) {
+  try {
+    const r = await api(`/demo/escalation-scenario?scenario=${v}`, {method: "POST"});
+    armed = r.armed; renderOutcomes();
+    toast(armed ? `Next runs end via “${armed}”` : "Back to service default");
+  } catch (e) { toast("Arm failed: " + e.message); }
+}
+
+async function fire(uid, scenario) {
+  try {
+    await api(`/simulate?scenario=${scenario}&user_id=${uid}`, {method: "POST"});
+    toast(`${scenario} injected for ${uid} — watch the dashboard card`);
+  } catch (e) { toast("Simulate failed: " + e.message); }
+}
+async function resetAll() {
+  for (const uid of userIds)
+    await api(`/demo/reset-cooldown/${uid}`, {method: "POST"}).catch(() => {});
+  toast("All cooldowns cleared — every scenario is re-fireable");
+}
+async function instantCall() {
+  const uid = document.getElementById("instant-user").value;
+  try {
+    const r = await api(`/escalation/trigger?user_id=${uid}`, {method: "POST"});
+    toast(`Agents dialing (${r.alert_id})`);
+  } catch (e) { toast("Trigger failed: " + e.message); }
+}
+
+function renderUsers(users) {
+  userIds = Object.keys(users);
+  document.getElementById("users").innerHTML =
+    "<tr><th>Who</th><th>Status</th><th>Fire</th></tr>" +
+    userIds.map(uid => {
+      const u = users[uid];
+      const cool = u.cooldown_sec_remaining > 0
+        ? `<div class="cool">cooldown ${u.cooldown_sec_remaining}s</div>` : "";
+      return `<tr>
+        <td><b>${u.name}</b><div style="color:var(--dim);font-size:11.5px">${u.source === "fitbit" ? "LIVE · WATCH" : "SIM"}</div></td>
+        <td><span class="badge ${u.status}">${u.status}</span>${cool}</td>
+        <td><div class="rowbtns">${SCENARIOS.map(([s, label]) =>
+          `<button class="small" onclick="fire('${uid}','${s}')">${label}</button>`).join("")}</div></td>
+      </tr>`;
+    }).join("");
+  const sel = document.getElementById("instant-user");
+  if (sel.options.length !== userIds.length) {
+    sel.innerHTML = userIds.map(uid =>
+      `<option value="${uid}">${users[uid].name}${users[uid].source === "fitbit" ? " (live watch)" : ""}</option>`).join("");
+    sel.value = userIds.includes("usr_live") ? "usr_live" : userIds[0];
+  }
+}
+
+function renderFeed(data) {
+  document.getElementById("dot-esc").className = "dot" + (data.service_ok ? " up" : "");
+  if (armed !== data.armed) { armed = data.armed; renderOutcomes(); }
+  const feed = document.getElementById("feed");
+  if (!data.runs.length) return;
+  feed.innerHTML = data.runs.map(run => {
+    const chain = run.transitions.map(t =>
+      `<b>${t.to}</b>${t.outcome ? ` <span class="out">(${t.outcome})</span>` : ""}`)
+      .join(" → ");
+    const calls = run.calls.map(c =>
+      `${c.role} → ${c.to_name}: ${c.outcome || "…"}${c.dry_run ? " (dry)" : ""}`)
+      .join(" · ");
+    return `<div class="run">
+      <div class="head"><span class="who">${run.user}</span>
+        <span class="state ${run.state}">${run.state}</span>
+        <span class="id">${run.alert_id}</span></div>
+      <div class="chain">detected → ${chain}</div>
+      ${calls ? `<div class="calls">${calls}</div>` : ""}
+      ${run.ambulance_simulated ? `<div class="amb">🚑 AMBULANCE — *** SIMULATED, NO REAL CALL ***</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+async function tick() {
+  try {
+    const state = await api("/state");
+    document.getElementById("dot-backend").className = "dot up";
+    renderUsers(state.users);
+  } catch { document.getElementById("dot-backend").className = "dot"; }
+  try { renderFeed(await api("/escalation/recent")); } catch {}
+}
+renderOutcomes();
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

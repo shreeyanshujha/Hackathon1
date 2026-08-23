@@ -56,3 +56,5 @@ backend/profiles.local.json
 backend/*.log
 __pycache__/
 .pytest_cache/
+escalation-service/
+hackathon-app/secrets

@@ -28,7 +28,14 @@ def call_events(user_id=None):
 
 
 @pytest.fixture(autouse=True)
-def clean_state():
+def clean_state(monkeypatch):
+    # The suite exercises the legacy direct-call path unless a test opts in
+    # to the escalation handoff explicitly (a developer .env may set this).
+    monkeypatch.delenv("ESCALATION_URL", raising=False)
+    # Zero-credential mode regardless of the developer's .env: a real
+    # TWILIO_AUTH_TOKEN arms webhook signature verification, which the
+    # signature test opts into explicitly.
+    monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
     # Force "awake now" for the daytime-scenario users regardless of when the
     # tests run: a zero-width sleep window 12 hours away.
     far = (datetime.now() + timedelta(hours=12)).strftime("%H:%M")
@@ -40,6 +47,8 @@ def clean_state():
         engine.users[uid] = engine_mod.UserState()
     engine.events.clear()
     main.mock_pause_until.clear()
+    main.demo_state["escalation_scenario"] = None
+    main.recent_escalations.clear()
     telephony_ctx = main.telephony.call_context
     telephony_ctx.clear()
     yield
@@ -239,6 +248,99 @@ def test_lost_connection_trigger_event_shape():
     assert ctx["urgency"] == "low"
     assert ctx["hr_now"] is not None      # last known reading's HR
     assert ctx["duration_sec"] >= limit_min * 60
+
+
+# ------------------------------------------------------- escalation handoff
+def test_trigger_hands_off_to_escalation_service(monkeypatch):
+    import escalation_bridge
+    sent = {}
+
+    def fake_hand_off(user_id, profile, scenario, context,
+                      ladder_scenario=None):
+        sent["payload"] = escalation_bridge.build_alert(
+            user_id, profile, scenario, context)
+        return {"alert_id": sent["payload"]["alert_id"],
+                "state": "detected", "status_url": "/alerts/x"}
+
+    monkeypatch.setenv("ESCALATION_URL", "http://escalation.test")
+    monkeypatch.setattr(main.escalation_bridge, "hand_off", fake_hand_off)
+    client.post("/simulate?scenario=acute")
+    assert events("escalation_handoff", "usr_demo_a")
+    assert not call_events("usr_demo_a")   # the ladder owns the calls now
+    payload = sent["payload"]
+    assert payload["user"]["name"] == "Jeff"
+    assert payload["tier"] == 3            # urgency high -> tier 3
+    assert payload["detail"]["hr_now"] is not None
+    assert payload["kin"][0]["phone"] == \
+        engine.profiles["usr_demo_a"]["kin_phone"]
+    assert payload["support_contact"]["phone"] == \
+        engine.profiles["usr_demo_a"]["responder_phone"]
+
+
+def test_arm_escalation_scenario_validates():
+    assert client.post("/demo/escalation-scenario?scenario=kin") \
+        .json()["armed"] == "kin"
+    assert client.post("/demo/escalation-scenario?scenario=default") \
+        .json()["armed"] is None
+    assert client.post("/demo/escalation-scenario?scenario=bogus") \
+        .status_code == 400
+
+
+def test_armed_scenario_rides_on_handoff(monkeypatch):
+    seen = {}
+
+    def fake_hand_off(user_id, profile, scenario, context, ladder_scenario=None):
+        seen["ladder"] = ladder_scenario
+        return {"alert_id": "alr-test", "state": "detected",
+                "status_url": "/alerts/alr-test"}
+
+    monkeypatch.setenv("ESCALATION_URL", "http://escalation.test")
+    monkeypatch.setattr(main.escalation_bridge, "hand_off", fake_hand_off)
+    client.post("/demo/escalation-scenario?scenario=kin")
+    client.post("/simulate?scenario=acute")
+    assert seen["ladder"] == "kin"
+    assert "alr-test" in main.recent_escalations
+
+
+def test_console_instant_trigger(monkeypatch):
+    seen = {}
+
+    def fake_hand_off(user_id, profile, scenario, context, ladder_scenario=None):
+        seen.update(user_id=user_id, scenario=scenario, ladder=ladder_scenario,
+                    context=context)
+        return {"alert_id": "alr-instant", "state": "detected",
+                "status_url": "/alerts/alr-instant"}
+
+    monkeypatch.setenv("ESCALATION_URL", "http://escalation.test")
+    monkeypatch.setattr(main.escalation_bridge, "hand_off", fake_hand_off)
+    r = client.post("/escalation/trigger?user_id=usr_demo_b&scenario=resolved")
+    assert r.status_code == 200 and r.json()["alert_id"] == "alr-instant"
+    assert seen["user_id"] == "usr_demo_b" and seen["ladder"] == "resolved"
+    assert seen["context"]["urgency"] == "high"
+    assert "alr-instant" in main.recent_escalations
+    assert events("escalation_handoff", "usr_demo_b")
+    # Unknown user and unconfigured service both fail loudly, not silently.
+    assert client.post("/escalation/trigger?user_id=usr_nope").status_code == 404
+
+
+def test_escalation_recent_degrades_without_service():
+    r = client.get("/escalation/recent")
+    assert r.status_code == 200
+    assert r.json() == {"armed": None, "service_ok": False, "runs": []}
+
+
+def test_console_page_served():
+    r = client.get("/console")
+    assert r.status_code == 200 and "Presenter" in r.text
+
+
+def test_escalation_unreachable_falls_back_to_direct_call(monkeypatch):
+    # Port 9 refuses connections immediately: a dead sidecar must never
+    # swallow an alert — the legacy kin call still goes out.
+    monkeypatch.setenv("ESCALATION_URL", "http://127.0.0.1:9")
+    client.post("/simulate?scenario=acute")
+    assert events("escalation_unreachable", "usr_demo_a")
+    assert call_events("usr_demo_a")
 
 
 # ------------------------------------------------------------- data sources
