@@ -328,13 +328,30 @@ def run_alert(
         # no_answer or unclear: try the next person
 
     # --- rung 3: the on-call support line, the last rung
-    support = alert.support_contact or SupportContact(phone=settings.support_phone)
+    support = alert.support_contact
+    if support is None and settings.support_phone:
+        support = SupportContact(phone=settings.support_phone)
     if not alert.kin:
         exhausted = "No kin listed."
     elif len(alert.kin) == 1:
         exhausted = f"{alert.kin[0].name} was the only kin listed and gave no decision."
     else:
         exhausted = f"All {len(alert.kin)} kin tried without a decision."
+
+    if support is None or not support.phone:
+        # No support rung configured: anything past kin is a human's job, so
+        # the chain ends here and human operators take over.
+        _move(
+            run,
+            AlertState.UNRESOLVED,
+            audit,
+            outcome=carried.outcome,
+            detail=exhausted + " No support line configured — human operators "
+                               "take over from here.",
+            transcript_summary=carried.summary,
+        )
+        return _finish(run)
+
     _move(
         run,
         AlertState.CALLING_SUPPORT,

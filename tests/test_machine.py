@@ -311,3 +311,28 @@ def test_run_alert_mutates_a_run_that_is_already_registered(jeff_alert):
     assert returned is existing
     assert existing.transitions
     assert existing.state == AlertState.UNRESOLVED
+
+
+def test_no_support_line_means_no_third_call(monkeypatch):
+    # Anything past kin is a human's job: with no support line configured,
+    # an exhausted kin list ends the chain as unresolved — no third call.
+    from escalation import config as config_module
+    from escalation.machine import run_alert
+    from escalation.models import Alert, Detail, Kin, UserProfile
+    from escalation.providers.dryrun import DryRunProvider, ScriptedCall
+
+    monkeypatch.setattr(config_module.settings, "support_phone", "")
+    alert = Alert(
+        alert_id="a_nosupport",
+        user=UserProfile(name="Shree", age=21, hr_baseline=62,
+                         expected_activity="at home", phone="+61400000001"),
+        detail=Detail(stillness_minutes=12, hr_now=136),
+        tier=1,
+        kin=[Kin(name="Manuel", phone="+61400000002")],
+        support_contact=None,
+    )
+    run = run_alert(alert, DryRunProvider({}, default=ScriptedCall(answered=False)))
+    assert run.state.value == "unresolved"
+    assert len(run.calls) == 2                      # user + kin only
+    assert {c.role.value for c in run.calls} == {"user", "kin"}
+    assert "human operators" in run.transitions[-1].detail

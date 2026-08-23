@@ -100,7 +100,7 @@ def intake(
     """Accept an alert from the detection module and start the ladder."""
     if provider not in (None, "dryrun", "elevenlabs"):
         raise HTTPException(400, "provider must be dryrun or elevenlabs")
-    if alert.support_contact is None:
+    if alert.support_contact is None and settings.support_phone:
         alert.support_contact = SupportContact(phone=settings.support_phone)
 
     if wait:
