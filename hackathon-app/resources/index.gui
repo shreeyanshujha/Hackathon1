@@ -1,8 +1,8 @@
 <svg>
   <rect id="background" />
   <circle id="conn-dot" cx="278" cy="22" r="8" />
-  <text id="title-text">Telecare</text>
-  <text id="hr-text">--</text>
+  <text id="title-text">Pulse Point</text>
+  <text id="hr-text" text-length="8">--</text>
   <text id="bpm-label">bpm</text>
   <text id="motion-text">warming up</text>
 </svg>

@@ -192,7 +192,7 @@ class Telephony:
 
     def send_escalation_sms(self, user_id, profile, scenario, context):
         body = (
-            "Telecare Escalate & Notify — %s (%s yrs)\n"
+            "Pulse Point Escalate & Notify — %s (%s yrs)\n"
             "Scenario: %s\n"
             "Heart rate: %s bpm\n"
             "Motion: %s\n"
