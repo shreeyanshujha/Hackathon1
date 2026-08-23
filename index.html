@@ -3,39 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vigil — cardiac emergency detection for your wrist</title>
-<meta name="description" content="Vigil watches for cardiac emergencies on your Fitbit Versa. If something is wrong and you don't respond, it alerts your next of kin and emergency services with your location.">
+<title>Pulse Point — cardiac emergency detection for your wrist</title>
+<meta name="description" content="Pulse Point watches for cardiac emergencies on your Fitbit Versa. If something is wrong and you don't respond, it alerts your next of kin and emergency services with your location.">
 <meta name="color-scheme" content="dark">
 
 <!-- Open Graph: makes the link look right when shared to Discord/Slack during judging -->
-<meta property="og:title" content="Vigil — cardiac emergency detection for your wrist">
-<meta property="og:description" content="If something is wrong and you don't respond, Vigil alerts your next of kin and emergency services with your location.">
+<meta property="og:title" content="Pulse Point — cardiac emergency detection for your wrist">
+<meta property="og:description" content="If something is wrong and you don't respond, Pulse Point alerts your next of kin and emergency services with your location.">
 <meta property="og:type" content="website">
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23070a0f'/%3E%3Cpath d='M3 17h5l2.5-7 4 14 3.5-9 2 2h9' fill='none' stroke='%233ddc97' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0f1c'/%3E%3Cpath d='M3 17h5l2.5-7 4 14 3.5-9 2 2h9' fill='none' stroke='%235ea8e8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
 <style>
 /* ─────────────────────────────────────────────────────────────
    Tokens
    ───────────────────────────────────────────────────────────── */
 :root{
-  --bg:#070a0f;
-  --bg-2:#0a0e15;
-  --surface:#111826;
-  --surface-2:#16202f;
-  --line:#1e2937;
-  --line-soft:#161f2c;
+  --bg:#0a0f1c;
+  --bg-2:#0e1626;
+  --surface:#1a2b4d;
+  --surface-2:#213862;
+  --line:#2a4272;
+  --line-soft:#1e304f;
 
-  --text:#e7eef8;
-  --muted:#93a3ba;
-  --faint:#65748c;
+  --text:#eef2f8;
+  --muted:#9fb0cc;
+  --faint:#71839f;
 
-  --vital:#3ddc97;          /* monitoring / healthy */
-  --vital-soft:rgba(61,220,151,.10);
-  --warn:#ffb454;           /* anomaly detected */
-  --warn-soft:rgba(255,180,84,.10);
-  --alert:#ff5a68;          /* escalating */
-  --alert-soft:rgba(255,90,104,.10);
+  --vital:#5ea8e8;          /* monitoring / healthy */
+  --vital-soft:rgba(94,168,232,.10);
+  --warn:#e07a5f;           /* anomaly detected */
+  --warn-soft:rgba(224,122,95,.10);
+  --alert:#dd422e;          /* escalating */
+  --alert-soft:rgba(221,66,46,.10);
 
   --radius:14px;
   --radius-lg:20px;
@@ -79,7 +79,7 @@ section{padding-block:clamp(64px,9vw,120px)}
    ───────────────────────────────────────────────────────────── */
 header{
   position:sticky; top:0; z-index:50;
-  background:rgba(7,10,15,.78);
+  background:rgba(10,15,28,.78);
   backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   border-bottom:1px solid var(--line-soft);
 }
@@ -99,10 +99,10 @@ header{
   transition:transform .16s, background .18s, border-color .18s, opacity .18s;
 }
 .btn:active{transform:translateY(1px)}
-.btn-primary{background:var(--vital); color:#04180f}
-.btn-primary:hover{background:#5ee8ad}
+.btn-primary{background:var(--vital); color:#071427}
+.btn-primary:hover{background:#7cc0f5}
 .btn-ghost{border-color:var(--line); color:var(--text); background:transparent}
-.btn-ghost:hover{border-color:#31435c; background:var(--surface)}
+.btn-ghost:hover{border-color:#3a5786; background:var(--surface)}
 .nav .btn{margin-left:auto}
 @media (min-width:801px){ .nav .btn{margin-left:0} }
 
@@ -112,8 +112,8 @@ header{
 .hero{position:relative; padding-top:clamp(48px,7vw,86px); padding-bottom:clamp(56px,8vw,100px); overflow:hidden}
 .hero::before{
   content:""; position:absolute; inset:-30% -10% auto -10%; height:620px; pointer-events:none;
-  background:radial-gradient(58% 60% at 22% 30%, rgba(61,220,151,.13), transparent 68%),
-             radial-gradient(46% 52% at 82% 12%, rgba(90,140,255,.09), transparent 70%);
+  background:radial-gradient(58% 60% at 22% 30%, rgba(94,168,232,.13), transparent 68%),
+             radial-gradient(46% 52% at 82% 12%, rgba(60,100,170,.10), transparent 70%);
 }
 .hero .wrap{position:relative}
 .hero-grid{display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(32px,4vw,60px); align-items:center}
@@ -129,7 +129,7 @@ header{
 
 h1{font-size:clamp(38px,5.6vw,62px); font-weight:680; margin-bottom:20px}
 h1 .hl{
-  background:linear-gradient(180deg,var(--vital),#26b87c);
+  background:linear-gradient(180deg,var(--vital),#2e6da4);
   -webkit-background-clip:text; background-clip:text; color:transparent;
 }
 .hero p.lede{margin-bottom:30px}
@@ -147,9 +147,9 @@ h1 .hl{
   box-shadow:0 24px 60px -24px rgba(0,0,0,.85);
   transition:border-color .4s, box-shadow .4s;
 }
-.monitor[data-state="anomaly"]{border-color:rgba(255,180,84,.42); box-shadow:0 24px 60px -24px rgba(255,180,84,.22)}
+.monitor[data-state="anomaly"]{border-color:rgba(224,122,95,.42); box-shadow:0 24px 60px -24px rgba(224,122,95,.22)}
 .monitor[data-state="countdown"],
-.monitor[data-state="dispatched"]{border-color:rgba(255,90,104,.5); box-shadow:0 24px 60px -24px rgba(255,90,104,.26)}
+.monitor[data-state="dispatched"]{border-color:rgba(221,66,46,.5); box-shadow:0 24px 60px -24px rgba(221,66,46,.26)}
 
 .m-head{
   display:flex; align-items:center; gap:12px;
@@ -201,13 +201,13 @@ h1 .hl{
 .countdown{
   display:flex; align-items:center; gap:14px;
   margin-top:14px; padding:14px; border-radius:12px;
-  background:var(--alert-soft); border:1px solid rgba(255,90,104,.3);
+  background:var(--alert-soft); border:1px solid rgba(221,66,46,.3);
 }
 .count-num{font:700 32px/1 var(--mono); color:var(--alert); font-variant-numeric:tabular-nums; min-width:56px}
 .count-txt{font-size:13px; color:var(--muted); line-height:1.45}
 .count-txt b{color:var(--text); display:block; font-size:14px; margin-bottom:2px}
 .btn-cancel{
-  margin-left:auto; flex:none; background:var(--text); color:#0a0e15;
+  margin-left:auto; flex:none; background:var(--text); color:#0e1626;
   border:0; border-radius:999px; padding:11px 18px;
   font:650 14px/1 var(--sans); cursor:pointer;
 }
@@ -222,12 +222,12 @@ h1 .hl{
 .m-foot{display:flex; flex-wrap:wrap; gap:10px; padding:0 18px 18px}
 .m-foot .btn{padding:10px 17px; font-size:14px}
 .btn-sim{background:var(--alert); color:#fff}
-.btn-sim:hover{background:#ff7480}
+.btn-sim:hover{background:#ea6b52}
 .btn-sim:disabled{opacity:.4; cursor:not-allowed}
 
 .toast{
   margin:0 18px 18px; padding:11px 14px; border-radius:10px;
-  background:var(--vital-soft); border:1px solid rgba(61,220,151,.28);
+  background:var(--vital-soft); border:1px solid rgba(94,168,232,.28);
   font-size:13.5px; color:var(--text);
 }
 
@@ -263,10 +263,10 @@ h1 .hl{
 .step .tag{
   display:inline-block; margin-top:16px; padding:5px 10px; border-radius:6px;
   font:600 11px/1.4 var(--mono); letter-spacing:.04em;
-  background:var(--vital-soft); color:var(--vital); border:1px solid rgba(61,220,151,.22);
+  background:var(--vital-soft); color:var(--vital); border:1px solid rgba(94,168,232,.22);
 }
-.step.s2 .tag{background:var(--warn-soft); color:var(--warn); border-color:rgba(255,180,84,.24)}
-.step.s3 .tag{background:var(--alert-soft); color:var(--alert); border-color:rgba(255,90,104,.24)}
+.step.s2 .tag{background:var(--warn-soft); color:var(--warn); border-color:rgba(224,122,95,.24)}
+.step.s3 .tag{background:var(--alert-soft); color:var(--alert); border-color:rgba(221,66,46,.24)}
 
 /* ─────────────────────────────────────────────────────────────
    Signals
@@ -337,7 +337,7 @@ h1 .hl{
 .notyet .sub{max-width:72ch; margin-bottom:18px; font-size:14.5px; color:var(--muted)}
 .notyet .limit-list{grid-template-columns:repeat(3,1fr)}
 @media (max-width:900px){ .notyet .limit-list{grid-template-columns:1fr} }
-.limit.soon{border-color:rgba(255,180,84,.22); background:var(--surface)}
+.limit.soon{border-color:rgba(224,122,95,.22); background:var(--surface)}
 .limit .need{
   display:block; margin-top:9px; font:600 10.5px/1.5 var(--mono);
   letter-spacing:.1em; text-transform:uppercase; color:var(--warn);
@@ -363,7 +363,7 @@ h1 .hl{
 @media (max-width:880px){ .road-grid{grid-template-columns:1fr} }
 .phase{padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface)}
 .phase .when{font:600 11px/1 var(--mono); letter-spacing:.13em; text-transform:uppercase; color:var(--faint); margin-bottom:14px; display:block}
-.phase.now{border-color:rgba(61,220,151,.35)}
+.phase.now{border-color:rgba(94,168,232,.35)}
 .phase.now .when{color:var(--vital)}
 .phase h3{font-size:17px; font-weight:640; margin-bottom:12px}
 .phase ul{margin:0; padding-left:18px; color:var(--muted); font-size:14.5px}
@@ -396,10 +396,10 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
   <div class="wrap nav">
     <a class="brand" href="#top">
       <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="8" fill="#111826"/>
-        <path d="M3 17h5l2.5-7 4 14 3.5-9 2 2h9" fill="none" stroke="#3ddc97" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect width="32" height="32" rx="8" fill="#1a2b4d"/>
+        <path d="M3 17h5l2.5-7 4 14 3.5-9 2 2h9" fill="none" stroke="#5ea8e8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      Vigil
+      Pulse Point
     </a>
     <nav class="nav-links">
       <a href="#how">How it works</a>
@@ -421,7 +421,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <span class="badge"><span class="dot"></span> Hackathon prototype · Not a medical device</span>
         <h1>When you can't call for&nbsp;help, <span class="hl">your wrist does.</span></h1>
         <p class="lede">
-          Vigil runs on your Fitbit Versa and watches for the physiological signature of a cardiac
+          Pulse Point runs on your Fitbit Versa and watches for the physiological signature of a cardiac
           emergency. If something looks wrong and you don't respond, it notifies your next of kin
           and emergency services with your location and medical profile — in under a minute,
           without you touching anything.
@@ -430,7 +430,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
           <a class="btn btn-primary" href="#demo">See it happen &rarr;</a>
           <a class="btn btn-ghost" href="#how">How it works</a>
         </div>
-        <p class="hero-note">Most cardiac arrests happen at home, and roughly half are unwitnessed. Vigil is built for the moment nobody is watching.</p>
+        <p class="hero-note">Most cardiac arrests happen at home, and roughly half are unwitnessed. Pulse Point is built for the moment nobody is watching.</p>
       </div>
 
       <!-- ── INTERACTIVE MONITOR ── -->
@@ -458,11 +458,11 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
           <div class="m-body">
             <div class="m-status" role="status" aria-live="polite">
               <span class="ic" id="statusIcon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3ddc97" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5ea8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/></svg>
               </span>
               <div>
                 <div class="t" id="statusTitle">Monitoring</div>
-                <div class="s" id="statusSub">Rhythm normal. Vigil checks continuously and stays silent unless something changes.</div>
+                <div class="s" id="statusSub">Rhythm normal. Pulse Point checks continuously and stays silent unless something changes.</div>
               </div>
             </div>
             <div id="dynamic"></div>
@@ -510,7 +510,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <h2>Detect, confirm, escalate.</h2>
         <p class="lede">
           The hard part of automatic emergency alerting isn't detection — it's not crying wolf.
-          Vigil never dials on a single reading. Every alert passes through a confirmation step
+          Pulse Point never dials on a single reading. Every alert passes through a confirmation step
           that you can cancel.
         </p>
       </div>
@@ -519,11 +519,11 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <div class="step s1 rv">
           <span class="num">STEP 01</span>
           <span class="icon">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3ddc97" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 4 12 3-8 2 2h5"/></svg>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5ea8e8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-6 4 12 3-8 2 2h5"/></svg>
           </span>
           <h3>Detect</h3>
           <p>
-            The optical sensor streams heart rate and rhythm continuously. Vigil flags sustained
+            The optical sensor streams heart rate and rhythm continuously. Pulse Point flags sustained
             abnormality — not a single spike — and cross-checks it against the accelerometer.
           </p>
           <span class="tag">Abnormal rhythm + body at rest</span>
@@ -532,7 +532,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <div class="step s2 rv">
           <span class="num">STEP 02</span>
           <span class="icon">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e07a5f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
           </span>
           <h3>Confirm</h3>
           <p>
@@ -545,7 +545,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <div class="step s3 rv">
           <span class="num">STEP 03</span>
           <span class="icon">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>
           </span>
           <h3>Escalate</h3>
           <p>
@@ -565,14 +565,14 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <div class="eyebrow">What it watches</div>
         <h2>One signal lies. Five together don't.</h2>
         <p class="lede">
-          A racing heart rate means nothing on its own — you could be running for a bus. Vigil
+          A racing heart rate means nothing on its own — you could be running for a bus. Pulse Point
           only escalates when several independent signals agree, and motion context is what
           separates a sprint from an emergency.
         </p>
       </div>
 
       <div class="sig-grid">
-        <div class="sig rv"><h3>Resting rate anomaly</h3><p>Heart rate far outside your personal baseline while the accelerometer reports no movement. The single strongest false-positive filter Vigil has.</p><span class="sensor">PPG + Accelerometer</span></div>
+        <div class="sig rv"><h3>Resting rate anomaly</h3><p>Heart rate far outside your personal baseline while the accelerometer reports no movement. The single strongest false-positive filter Pulse Point has.</p><span class="sensor">PPG + Accelerometer</span></div>
         <div class="sig rv"><h3>Rhythm irregularity</h3><p>Beat-to-beat intervals that lose their regular pattern, consistent with arrhythmia rather than exertion.</p><span class="sensor">PPG</span></div>
         <div class="sig rv"><h3>Variability collapse</h3><p>A sharp drop in heart rate variability, an early indicator of acute cardiac stress that often precedes symptoms.</p><span class="sensor">PPG</span></div>
         <div class="sig rv"><h3>Sudden bradycardia</h3><p>An abrupt fall in heart rate. Cardiac events don't only present as a spike — a collapse in rate can matter just as much.</p><span class="sensor">PPG</span></div>
@@ -589,7 +589,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         <div class="eyebrow">Your baseline</div>
         <h2>48 bpm is an emergency for one person and a Tuesday for another.</h2>
         <p class="lede">
-          Population averages are why wearables cry wolf. Before Vigil watches anything, it asks
+          Population averages are why wearables cry wolf. Before Pulse Point watches anything, it asks
           about you — your history, your medication, your day — and derives every threshold on the
           watch from those answers instead of from a chart of everybody.
         </p>
@@ -681,7 +681,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
           missed it, or fired on it every afternoon.
         </p>
         <p class="base-note">
-          His diabetes doesn't give Vigil a glucose reading — nothing on the watch can do that.
+          His diabetes doesn't give Pulse Point a glucose reading — nothing on the watch can do that.
           It changes what the watch does with a reading it already has: an unexplained rate spike
           with tremor and no motion is worth surfacing sooner in someone on glucose-lowering
           medication than in someone who isn't.
@@ -697,7 +697,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
         </p>
         <div class="limit-list">
           <div class="limit soon">
-            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#e07a5f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
             <div>
               <b>Blood pressure spikes</b>
               <span>
@@ -710,11 +710,11 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
           </div>
 
           <div class="limit soon">
-            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#e07a5f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
             <div>
               <b>Blood sugar</b>
               <span>
-                Vigil can record that you're diabetic and on insulin, and it can notice the racing
+                Pulse Point can record that you're diabetic and on insulin, and it can notice the racing
                 pulse, sweating and tremor that often accompany a hypo. It cannot tell you your
                 glucose. That number has to come from a continuous monitor.
               </span>
@@ -723,7 +723,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
           </div>
 
           <div class="limit soon">
-            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#e07a5f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
             <div>
               <b>Anaphylactic shock</b>
               <span>
@@ -745,7 +745,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
     <div class="wrap">
       <div class="rv">
         <div class="eyebrow">Being honest</div>
-        <h2 style="font-size:clamp(28px,3.6vw,40px); font-weight:660; margin-bottom:16px">What Vigil is not.</h2>
+        <h2 style="font-size:clamp(28px,3.6vw,40px); font-weight:660; margin-bottom:16px">What Pulse Point is not.</h2>
         <p class="lede">
           A tool that can summon an ambulance has to be honest about what it can't do.
           These are real constraints, not disclaimers we're hiding at the bottom.
@@ -754,23 +754,23 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
 
       <div class="limit-list rv">
         <div class="limit">
-          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-          <div><b>It cannot diagnose a heart attack.</b><span>A wrist optical sensor is not an ECG and cannot identify a myocardial infarction. Vigil detects patterns of physiological distress and unresponsiveness — that is a different, more modest claim.</span></div>
+          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+          <div><b>It cannot diagnose a heart attack.</b><span>A wrist optical sensor is not an ECG and cannot identify a myocardial infarction. Pulse Point detects patterns of physiological distress and unresponsiveness — that is a different, more modest claim.</span></div>
         </div>
         <div class="limit">
-          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
           <div><b>It is not a certified medical device.</b><span>No regulatory clearance. It does not replace medical advice, and it must never be a reason to delay calling emergency services yourself.</span></div>
         </div>
         <div class="limit">
-          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
           <div><b>False positives are possible.</b><span>This is why the countdown exists and why we gate on stillness. An unnecessary ambulance dispatch is a real cost to a real emergency system, and we design against it rather than pretending it away.</span></div>
         </div>
         <div class="limit">
-          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
           <div><b>It needs a phone in range.</b><span>The watch detects; the paired phone places the call. Out of Bluetooth range or without signal, escalation cannot complete.</span></div>
         </div>
         <div class="limit">
-          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+          <span class="x"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
           <div><b>Your data stays yours.</b><span>Vital signs are processed on-device. Location and medical profile are transmitted only during a confirmed escalation, and your next of kin must opt in before they can be contacted.</span></div>
         </div>
       </div>
@@ -809,12 +809,12 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
     <div class="wrap">
       <h2 class="rv">Nobody plans to be alone for it.</h2>
       <p class="lede rv">
-        Vigil is a student hackathon project exploring what consumer wearables could do
+        Pulse Point is a student hackathon project exploring what consumer wearables could do
         in the minutes that matter most. We'd genuinely like to hear from you.
       </p>
       <div class="cta-btns rv">
         <a class="btn btn-primary" href="#demo">Try the demo</a>
-        <a class="btn btn-ghost" href="https://github.com/YOUR-USERNAME/vigil">View on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/YOUR-USERNAME/pulsepoint">View on GitHub</a>
       </div>
     </div>
   </section>
@@ -823,8 +823,8 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
 <footer>
   <div class="wrap foot">
     <span class="brand">
-      <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#111826"/><path d="M3 17h5l2.5-7 4 14 3.5-9 2 2h9" fill="none" stroke="#3ddc97" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Vigil
+      <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1a2b4d"/><path d="M3 17h5l2.5-7 4 14 3.5-9 2 2h9" fill="none" stroke="#5ea8e8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Pulse Point
     </span>
     <span>Prototype — not a medical device. In an emergency, contact your local emergency services.</span>
     <span class="right"><a href="#how">How it works</a><a href="#limits">Limitations</a></span>
@@ -909,9 +909,9 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
   }
 
   function accentFor(s){
-    if (s === "normal")  return "#3ddc97";
-    if (s === "anomaly") return "#ffb454";
-    return "#ff5a68";
+    if (s === "normal")  return "#5ea8e8";
+    if (s === "anomaly") return "#e07a5f";
+    return "#dd422e";
   }
 
   function step(dt){
@@ -1027,9 +1027,9 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
 
   /* ── UI state ───────────────────────────────────────────── */
   var ICONS = {
-    normal:  '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3ddc97" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/></svg>',
-    anomaly: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
-    alert:   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>'
+    normal:  '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5ea8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4.5 8-11V5l-8-3-8 3v6c0 6.5 8 11 8 11z"/></svg>',
+    anomaly: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e07a5f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+    alert:   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>'
   };
 
   var timers = [];
@@ -1040,8 +1040,8 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
     state = s;
     monitor.setAttribute("data-state", s);
     dotEl.style.background  = accentFor(s);
-    dotEl.style.boxShadow   = "0 0 0 4px " + (s === "normal" ? "rgba(61,220,151,.10)"
-                              : s === "anomaly" ? "rgba(255,180,84,.10)" : "rgba(255,90,104,.10)");
+    dotEl.style.boxShadow   = "0 0 0 4px " + (s === "normal" ? "rgba(94,168,232,.10)"
+                              : s === "anomaly" ? "rgba(224,122,95,.10)" : "rgba(221,66,46,.10)");
     iconEl.innerHTML = ICONS[icon];
     titleEl.textContent = title;
     subEl.textContent = sub;
@@ -1056,7 +1056,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
     simBtn.disabled = false;
     setState("normal", "normal",
       "Monitoring",
-      "Rhythm normal. Vigil checks continuously and stays silent unless something changes.");
+      "Rhythm normal. Pulse Point checks continuously and stays silent unless something changes.");
     dynEl.innerHTML = msg
       ? '<div class="toast">' + msg + '</div>'
       : "";
@@ -1068,7 +1068,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
     simBtn.disabled = true;
     mode = "arrhythmia";
     motionEl.textContent = "No movement";
-    motionEl.style.color = "#ffb454";
+    motionEl.style.color = "#e07a5f";
     setState("anomaly", "anomaly",
       "Abnormal rhythm detected",
       "Rate above your at-rest ceiling of " + PROFILE.ceiling + " bpm, variability under your floor of "
@@ -1109,7 +1109,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
   function dispatch(){
     setState("dispatched", "alert",
       "Emergency response triggered",
-      "No response received. Vigil escalated automatically on your behalf.");
+      "No response received. Pulse Point escalated automatically on your behalf.");
 
     dynEl.innerHTML =
       '<div class="dispatch">' +
@@ -1138,7 +1138,7 @@ footer{border-top:1px solid var(--line-soft); padding-block:34px; background:var
 
   function row(label, value){
     return '<div class="dl">' +
-      '<span class="tick"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff5a68" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
+      '<span class="tick"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#dd422e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
       '<span class="lbl">' + label + '</span>' +
       '<span class="val">' + value + '</span>' +
     '</div>';
