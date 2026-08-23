@@ -184,3 +184,16 @@ def test_transitions_are_visible_while_the_ladder_is_still_running(monkeypatch):
         worker.join(timeout=5)
 
     assert RUNS[alert.alert_id].is_terminal
+
+
+def test_provider_override_is_validated_and_dryrun_runs(client):
+    # One-alert provider override: the demo console runs scripted dry runs
+    # all day and fires a single real call on demand.
+    assert client.post("/alerts?provider=bogus", json=BRIEF_PAYLOAD).status_code == 400
+    from escalation.config import settings
+
+    payload = dict(BRIEF_PAYLOAD)
+    payload["kin"] = [{"name": "Jess", "phone": settings.jess_phone}]
+    body = client.post("/alerts?wait=true&provider=dryrun&scenario=kin",
+                       json=payload).json()
+    assert body["state"] == "escalated" and body["ambulance_simulated"]

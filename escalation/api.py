@@ -37,9 +37,16 @@ RUNS: dict[str, AlertRun] = {}
 _lock = threading.Lock()
 
 
-def build_provider(scenario: Optional[ScenarioName] = None) -> CallProvider:
-    """The live provider ignores scenarios; the phone decides what happens."""
-    if settings.call_provider == "elevenlabs":
+def build_provider(
+    scenario: Optional[ScenarioName] = None,
+    provider: Optional[str] = None,
+) -> CallProvider:
+    """The live provider ignores scenarios; the phone decides what happens.
+
+    `provider` overrides CALL_PROVIDER for one alert — the demo console runs
+    scripted dry runs all day and fires a single real call on demand.
+    """
+    if (provider or settings.call_provider) == "elevenlabs":
         from .providers.elevenlabs import ElevenLabsTwilioProvider
 
         return ElevenLabsTwilioProvider()
@@ -60,9 +67,15 @@ def _register_pending(alert: Alert) -> AlertRun:
         return run
 
 
-def _execute(alert: Alert, scenario: Optional[ScenarioName] = None) -> AlertRun:
+def _execute(
+    alert: Alert,
+    scenario: Optional[ScenarioName] = None,
+    provider: Optional[str] = None,
+) -> AlertRun:
     run = _register_pending(alert)
-    return run_alert(alert, build_provider(scenario), run=run)
+    chosen = build_provider(scenario) if provider is None else \
+        build_provider(scenario, provider)
+    return run_alert(alert, chosen, run=run)
 
 
 @app.get("/health")
@@ -82,16 +95,19 @@ def intake(
     background: BackgroundTasks,
     wait: bool = False,
     scenario: Optional[ScenarioName] = None,
+    provider: Optional[str] = None,
 ):
     """Accept an alert from the detection module and start the ladder."""
+    if provider not in (None, "dryrun", "elevenlabs"):
+        raise HTTPException(400, "provider must be dryrun or elevenlabs")
     if alert.support_contact is None:
         alert.support_contact = SupportContact(phone=settings.support_phone)
 
     if wait:
-        return _execute(alert, scenario).summary()
+        return _execute(alert, scenario, provider).summary()
 
     _register_pending(alert)
-    background.add_task(_execute, alert, scenario)
+    background.add_task(_execute, alert, scenario, provider)
     return {
         "alert_id": alert.alert_id,
         "state": AlertState.DETECTED.value,
