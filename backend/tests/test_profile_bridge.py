@@ -117,3 +117,53 @@ def test_rejects_missing_sleep_baseline():
                                     "napPattern": None})
     with pytest.raises(bridge.BaselineError, match="sleep"):
         bridge.baseline_to_profile(baseline, today=TODAY)
+
+
+# --- phone numbers must reach the dialler in E.164 ------------------------
+# Onboarding's phone field prompts for "0412 345 678", and the app stores
+# exactly that (minus spacing). Twilio and ElevenLabs both reject anything
+# that is not E.164, so a local-format number means the kin call fails at
+# the moment it matters. The bridge is the last hop before the engine card.
+
+
+def contacts(primary_phone, other_phone=None):
+    people = [{"name": "Sarah", "relationship": "Daughter",
+               "phone": primary_phone, "isPrimary": True}]
+    if other_phone is not None:
+        people.append({"name": "Nurse Joy", "relationship": "Carer",
+                       "phone": other_phone, "isPrimary": False})
+    return make_baseline(emergencyContacts=people)
+
+
+def test_local_mobile_converted_to_e164():
+    fields = bridge.baseline_to_profile(contacts("0412345678"), today=TODAY)
+    assert fields["kin_phone"] == "+61412345678"
+
+
+def test_local_landline_converted_to_e164():
+    fields = bridge.baseline_to_profile(contacts("0298765432"), today=TODAY)
+    assert fields["kin_phone"] == "+61298765432"
+
+
+def test_spacing_and_punctuation_stripped():
+    fields = bridge.baseline_to_profile(contacts("(04) 1234-5678"),
+                                        today=TODAY)
+    assert fields["kin_phone"] == "+61412345678"
+
+
+def test_e164_number_passes_through_unchanged():
+    fields = bridge.baseline_to_profile(contacts("+61400000001"), today=TODAY)
+    assert fields["kin_phone"] == "+61400000001"
+
+
+def test_responder_phone_normalised_too():
+    fields = bridge.baseline_to_profile(contacts("0412345678", "0298765432"),
+                                        today=TODAY)
+    assert fields["responder_phone"] == "+61298765432"
+
+
+def test_rejects_undiallable_primary_number():
+    # Better to fail the sync loudly than to store a number that will only
+    # reveal itself as undiallable during an emergency.
+    with pytest.raises(bridge.BaselineError, match="phone"):
+        bridge.baseline_to_profile(contacts("12345"), today=TODAY)

@@ -58,10 +58,20 @@ export function ageFromDob(iso) {
   return age;
 }
 
-// Strips spacing/punctuation; accepts local (0412 345 678) or international (+61…) forms.
+// Numbers are stored in E.164 (+61412345678) because that is the only form
+// Twilio and ElevenLabs will dial — a local-format number survives onboarding
+// happily and then fails at the one moment it is needed. Accepts the local
+// form onboarding asks for (0412 345 678) or an explicit international one;
+// anything else is rejected rather than guessed at.
+export const DEFAULT_COUNTRY_CODE = '+61'; // the fleet is Australian
+
 export function normalizePhone(input) {
   if (!input) return null;
   const s = String(input).replace(/[\s().-]/g, '');
-  if (!/^\+?\d{8,15}$/.test(s)) return null;
-  return s;
+  let national;
+  if (s.startsWith('+')) national = s.slice(1);
+  else if (s.startsWith('0')) national = DEFAULT_COUNTRY_CODE.slice(1) + s.slice(1);
+  else return null;
+  if (!/^\d{8,15}$/.test(national)) return null;
+  return `+${national}`;
 }

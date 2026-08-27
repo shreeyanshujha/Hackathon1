@@ -11,10 +11,18 @@ quietly accepted. That is the product promise Module 1 makes on its consent
 screen.
 """
 
+import re
 from datetime import date, datetime
 
 SCHEMA_VERSION = 1
 DEFAULT_ROUTINE_DURATION_MIN = 60
+
+# Every contact number is stored in E.164, because that is the only form
+# Twilio and ElevenLabs will dial. Onboarding prompts for the local form
+# ("0412 345 678"), so the trunk 0 is swapped for the country code here --
+# the last hop before the number lands on the engine card.
+DEFAULT_COUNTRY_CODE = "+61"          # the fleet is Australian
+_PHONE_SEPARATORS = re.compile(r"[\s().-]")
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday",
         "saturday", "sunday")
@@ -34,6 +42,27 @@ def _age(dob_iso, today):
     if (today.month, today.day) < (born.month, born.day):
         age -= 1
     return age
+
+
+def _e164(raw, field):
+    """Local or international contact number -> E.164, or raise.
+
+    Refusing is deliberate: an undiallable number that survives the sync
+    only reveals itself when the ladder tries to place the call, which is
+    the one moment there is no time to fix it.
+    """
+    digits = _PHONE_SEPARATORS.sub("", str(raw or ""))
+    if digits.startswith("+"):
+        national = digits[1:]
+    elif digits.startswith("0"):        # local trunk prefix
+        national = DEFAULT_COUNTRY_CODE[1:] + digits[1:]
+    else:
+        national = ""
+    if not national.isdigit() or not 8 <= len(national) <= 15:
+        raise BaselineError(
+            "%s %r is not a diallable phone number (expected 0412 345 678 "
+            "or +61412345678)" % (field, raw))
+    return "+" + national
 
 
 def _end_of_entry(start_hhmm, duration_min):
@@ -100,9 +129,10 @@ def baseline_to_profile(baseline, today=None):
                          "end": sleep["typicalWake"]},
         "routine": routine,
         "kin_name": primary["name"],
-        "kin_phone": primary["phone"],
+        "kin_phone": _e164(primary["phone"], "primary contact phone"),
         "baseline_synced_at": datetime.now().isoformat(timespec="seconds"),
     }
     if others:
-        fields["responder_phone"] = others[0]["phone"]
+        fields["responder_phone"] = _e164(others[0]["phone"],
+                                          "responder phone")
     return fields
